@@ -17,10 +17,6 @@ class Mix:
     timestretch: str
     fx: str
     
-    def __str__(self):
-        return self.audio_path.name
-    
-    @property
     def audio(self, **kwargs):
         return librosa.load(self.audio_path, **kwargs)[0]
 
@@ -59,16 +55,14 @@ class RefSong:
     beat_path: Path
     mfcc_path: Path
     txt_path: Path
-    def __str__(self):
-        return self.audio_path.name
     
-    @property
     def audio(self, **kwargs):
         return librosa.load(self.audio_path, **kwargs)[0]
 
 
 class UnmixDB:
-    def __init__(self, base_path: Path):
+    def __init__(self, base_path: Path|str):
+        base_path=Path(base_path)
         self.mixes = {}
         self.refsongs = {}
         for subset in base_path.glob('*'):
