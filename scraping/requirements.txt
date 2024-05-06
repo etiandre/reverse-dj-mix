@@ -1,0 +1,2 @@
+charset-normalizer==3.3.2
+Scrapy==2.11.1

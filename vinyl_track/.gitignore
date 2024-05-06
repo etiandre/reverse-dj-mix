@@ -1,0 +1,7 @@
+*.mp4
+*.MOV
+*.ORF*
+out/
+darktable_exported/
+*.npy
+*.pickle

@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+/.venv
+/.ipynb_checkpoints
+/.vscode
+
+ableton
+biblio
+datasets
+*.pdf
+*.wav
+*.reapeaks
+*.bkp
