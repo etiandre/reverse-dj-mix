@@ -24,8 +24,8 @@ class ActivationLearner:
         self.inv_transform = inv_transform
         self.refs = refs
         # transform audio into feature matrix
-        refs_mat = [abs(transform(i)) ** 2 for i in refs]
-        mix_mat = abs(transform(mix)) ** 2
+        refs_mat = [transform(i) for i in refs]
+        mix_mat = transform(mix)
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
