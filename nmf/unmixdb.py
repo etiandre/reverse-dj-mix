@@ -83,3 +83,9 @@ class UnmixDB:
                     txt_path=audio_path.with_suffix(".txt"),
                     beat_path=audio_path.with_suffix("").with_suffix(".beat.xml")
                 )
+    @cached_property
+    def timestretches(self):
+        return set(i.timestretch for i in self.mixes.values())
+    @cached_property
+    def fxes(self):
+        return set(i.fx for i in self.mixes.values())
