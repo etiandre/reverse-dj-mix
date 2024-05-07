@@ -54,12 +54,14 @@ class ActivationLearner:
 
         # transform and clean audio into feature matrix
         mix_mat = self.transform(mix)
+        mix_mat /= np.sum(mix_mat, axis=0, keepdims=True)
+        
         refs_mat = []
         for i in refs:
             spec = self.transform(i)
             spec /= spec.max()
-            # set all nearzero columns to zero
-            spec[:, np.mean(spec, axis=0) < col_mag_threshold] = 0
+            spec /= np.sum(spec, axis=0, keepdims=True)
+            # spec[:, np.mean(spec, axis=0) < col_mag_threshold] = 0
             refs_mat.append(spec)
 
         # compute indexes of track boundaries
