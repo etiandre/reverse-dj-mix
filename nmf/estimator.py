@@ -14,24 +14,22 @@ logger = logging.getLogger(__name__)
 class ActivationLearner:
     def __init__(
         self,
-        mix: np.ndarray,
-        refs: List[np.ndarray],
-        fs,
+        inputs: list[np.ndarray],
+        fs: int,
         additional_dim: int = 0,
-        col_mag_threshold=1e-8,
-        win_len=2**14,
-        hop_len=2**12,
-        n_mels=512,
+        win_size: float = 1.0,
+        hop_size: float = 0.25,
+        n_mels: int = 512,
         **nmf_kwargs,
     ):
         self.learn_add = additional_dim > 0
-        self.refs = refs
-        self.win_len = win_len
-        self.hop_len = hop_len
+        self.inputs = inputs
+        self.win_len = int(win_size * fs)
+        self.hop_len = int(hop_size * fs)
         self.n_mels = n_mels
         self.fs = fs
-        logger.info(f"{win_len=}={win_len/fs:.2f}s")
-        logger.info(f"{hop_len=}={hop_len/fs:.2f}s")
+        logger.info(f"window = {self.win_len} frames")
+        logger.info(f"hop  = {self.hop_len} frames")
 
         # transform=lambda x: abs(librosa.stft(x, n_fft=NFFT, hop_length=HLEN, center=True))**2,
         # inv_transform=lambda S: librosa.istft(S, n_fft=NFFT, hop_length=HLEN, center=True),
@@ -43,42 +41,40 @@ class ActivationLearner:
         # inv_transform=lambda mfcc: librosa.feature.inverse.mfcc_to_audio(mfcc),
 
         self.transform = lambda x: librosa.feature.melspectrogram(
-            y=x, sr=fs, n_fft=win_len, hop_length=hop_len, power=2, n_mels=n_mels
+            y=x,
+            sr=fs,
+            n_fft=self.win_len,
+            hop_length=self.hop_len,
+            power=2,
+            n_mels=n_mels,
+            center=False,
         )
         self.inv_transform = lambda S: librosa.feature.inverse.mel_to_audio(
-            S, sr=fs, n_fft=win_len, hop_length=hop_len, power=2
+            S, sr=fs, n_fft=self.win_len, hop_length=self.hop_len, power=2
         )
 
         # transform=lambda x: beat_stft(x, FS, NFFT)[0],
         # inv_transform=lambda S: librosa.istft(S, n_fft=NFFT, hop_length=HLEN, center=True),
-
-        # transform and clean audio into feature matrix
-        mix_mat = self.transform(mix)
-        mix_mat /= np.sum(mix_mat, axis=0, keepdims=True)
-        
-        refs_mat = []
-        for i in refs:
-            spec = self.transform(i)
-            spec /= spec.max()
-            spec /= np.sum(spec, axis=0, keepdims=True)
-            # spec[:, np.mean(spec, axis=0) < col_mag_threshold] = 0
-            refs_mat.append(spec)
+        inputs_mat = []
+        for x in inputs:
+            x_mat = self.transform(x)
+            x_mat /= np.sum(x_mat, axis=0, keepdims=True)  # normalize columns
+            inputs_mat.append(x_mat)
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
-            np.cumsum([ref.shape[1] for ref in refs_mat], axis=0)
+            np.cumsum([ref.shape[1] for ref in inputs_mat[:-1]], axis=0)
         )
 
         # construct NMF matrices
-        V = mix_mat / mix_mat.max()
+        V = inputs_mat[-1]
 
-        refs_mat = [i / i.max() for i in refs_mat]
         if self.learn_add:
-            Wa = np.random.rand(refs_mat[0].shape[0], additional_dim)
-            W = np.concatenate(refs_mat + [Wa], axis=1)
+            Wa = np.random.rand(inputs_mat[0].shape[0], additional_dim)
+            W = np.concatenate(inputs_mat[:-1] + [Wa], axis=1)
             self.split_idx.append(self.split_idx[-1] + additional_dim)
         else:
-            W = np.concatenate(refs_mat, axis=1)
+            W = np.concatenate(inputs_mat[:-1], axis=1)
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
@@ -133,7 +129,7 @@ class ActivationLearner:
             Hfilt = scipy.signal.wiener(self.nmf.H, mysize=(weiner, weiner))
         else:
             Hfilt = self.nmf.H
-            
+
         for left, right in zip(self.split_idx, self.split_idx[1:]):
             _, N = Hfilt.shape
             pos = np.empty(N)
@@ -151,8 +147,8 @@ class ActivationLearner:
     def reconstruct(self, i: int):
         a = self.split_idx[i]
         b = self.split_idx[i + 1]
-        if i < len(self.refs):
-            ref_spec = self.transform(self.refs[i])
+        if i < len(self.inputs) - 1:
+            ref_spec = self.transform(self.inputs[i])
             Vi = (
                 self.nmf.V * (ref_spec @ self.nmf.H[a:b, :]) / (self.nmf.W @ self.nmf.H)
             )

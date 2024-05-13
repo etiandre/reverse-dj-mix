@@ -75,10 +75,10 @@ class BetaNMF:
     ):
         assert not np.isnan(H).any(), "H contains NaN"
         assert np.all(H >= 0), "H is negative"
-        if beta == 0:
-            assert np.all(H > 0), "H cannot have 0 values if beta==0"
+        # if beta == 0:
+        #     assert np.all(H > 0), "H cannot have 0 values if beta==0"
         assert not np.isnan(W).any(), "W contains NaN"
-        assert np.all(W >= 0), "V is negative"
+        assert np.all(W >= 0), "W is negative"
         assert not np.isnan(V).any(), "V contains NaN"
         assert np.all(V >= 0), "V is negative"
         assert not (fixed_W and fixed_H), "Cannot fix both W and H"

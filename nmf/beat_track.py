@@ -1,28 +1,41 @@
+from typing import Optional
+import warnings
 import librosa
 import numpy as np
+import lxml.etree
+import matplotlib.pyplot as plt
+import scipy.ndimage
 
-def variable_win_stft(y: np.ndarray, beats_idx: np.ndarray, nfft: int):
-    spec = np.zeros((1 + nfft // 2, beats_idx.shape[0]-1))
-    for i, (left, right) in enumerate(zip(beats_idx, beats_idx[1:])):
+
+def variable_win_stft(
+    y: np.ndarray,
+    boundaries: np.ndarray,
+    nfft: Optional[int] = None,
+    win: Optional[np.ndarray] = None,
+):
+    max_slice_len = np.max(np.diff(boundaries))
+    if nfft is None:
+        nfft = max_slice_len  # TODO: nextpow2
+    if max_slice_len > nfft:
+        warnings.warn(f"{max_slice_len=} is less than {nfft=}: will truncate")
+
+    spec = np.zeros((1 + nfft // 2, boundaries.shape[0] - 1), dtype=complex)
+    for i, (left, right) in enumerate(zip(boundaries, boundaries[1:])):
         col = np.fft.rfft(y[left:right], nfft)
         spec[:, i] = col
-    return spec, beats_idx
 
-def beat_stft(y: np.ndarray, sr, nfft, method="plp"):
-    # plt.figure(figsize=(20,6))
-    # plt.plot(y)
-    if method == "plp":
-        hop=384
-        win=512
-        plp = librosa.beat.plp(y=y, sr=sr, hop_length=hop, win_length=win)
-        beats_idx = np.flatnonzero(librosa.util.localmax(plp)) * hop
-    elif method == "beat_track":
-        _, beats_idx = librosa.beat.beat_track(y=y, sr=sr, units="samples")
-    # plt.vlines(beats_idx, -1, 1)
-    # max_interval = np.max(np.diff(beats_idx))
-    
-    spec = np.zeros((1 + nfft // 2, beats_idx.shape[0]-1))
-    for i, (left, right) in enumerate(zip(beats_idx, beats_idx[1:])):
-        col = np.fft.rfft(y[left:right], nfft)
-        spec[:, i] = col
-    return spec, beats_idx
+    if win is not None:
+        spec = scipy.ndimage.convolve1d(spec, win, axis=1, mode="constant")
+    return spec, nfft
+
+
+def parse_ircambeat_xml(xml: bytes):
+    tree = lxml.etree.fromstring(xml)
+    ns = {"music": "http://www.quaero.org/Music_6/1.0"}
+    ret = []
+    for beat in tree.xpath(
+        "/music:musicdescription/music:segment/music:beattype", namespaces=ns
+    ):
+        time = float(beat.getparent().attrib["time"])
+        ret.append(time)
+    return np.array(ret)
