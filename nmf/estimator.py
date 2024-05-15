@@ -7,9 +7,9 @@ import scipy.signal
 import librosa
 import logging
 import matplotlib.pyplot as plt
+import beat_track
 
 logger = logging.getLogger(__name__)
-
 
 class ActivationLearner:
     def __init__(
@@ -17,49 +17,40 @@ class ActivationLearner:
         inputs: list[np.ndarray],
         fs: int,
         additional_dim: int = 0,
-        win_size: float = 1.0,
-        hop_size: float = 0.25,
+        boundaries: list[np.ndarray] = None,
+        stft_win_func: Callable = None,
+        spec_conv_win: np.ndarray = None,
+        win_len: float = None,
+        hop_len: float = None,
         n_mels: int = 512,
-        **nmf_kwargs,
     ):
+        assert (boundaries is not None) or (win_len is not None and hop_len is not None)
+        
+        if boundaries is None:
+            assert win_len is not None
+            assert hop_len is not None
+            starts = [np.arange(0, len(i)-win_len, hop_len) for i in inputs]
+            ends = [i + win_len for i in starts]
+            boundaries = [np.vstack([starts[i], ends[i]]).T for i in range(len(inputs))]
+            
         self.learn_add = additional_dim > 0
         self.inputs = inputs
-        self.win_len = int(win_size * fs)
-        self.hop_len = int(hop_size * fs)
+        self.boundaries = boundaries
         self.n_mels = n_mels
         self.fs = fs
-        logger.info(f"window = {self.win_len} frames")
-        logger.info(f"hop  = {self.hop_len} frames")
 
-        # transform=lambda x: abs(librosa.stft(x, n_fft=NFFT, hop_length=HLEN, center=True))**2,
-        # inv_transform=lambda S: librosa.istft(S, n_fft=NFFT, hop_length=HLEN, center=True),
+        # transform inputs
+        inputs_mat: list[np.ndarray] = []
+        for i,x in enumerate(inputs):
+            stft, n_fft = beat_track.variable_stft(x, boundaries[i], win_func=stft_win_func)
+            if spec_conv_win is not None:
+                stft = scipy.ndimage.convolve1d(stft, spec_conv_win, axis=1, mode="constant")
 
-        # transform = lambda x: abs(librosa.cqt(x, sr=FS, hop_length=HLEN)),
-        # inv_transform=lambda S: librosa.icqt(S, sr=FS, hop_length=HLEN),
+            mel_f = librosa.filters.mel(sr=fs, n_fft=n_fft, n_mels=n_mels)
+            melspec = mel_f.dot(abs(stft)**2)
+            melspec /= np.sum(melspec, axis=0, keepdims=True)  # normalize columns
 
-        # transform = lambda x: abs(librosa.feature.mfcc(y=x, sr=FS)),
-        # inv_transform=lambda mfcc: librosa.feature.inverse.mfcc_to_audio(mfcc),
-
-        self.transform = lambda x: librosa.feature.melspectrogram(
-            y=x,
-            sr=fs,
-            n_fft=self.win_len,
-            hop_length=self.hop_len,
-            power=2,
-            n_mels=n_mels,
-            center=False,
-        )
-        self.inv_transform = lambda S: librosa.feature.inverse.mel_to_audio(
-            S, sr=fs, n_fft=self.win_len, hop_length=self.hop_len, power=2
-        )
-
-        # transform=lambda x: beat_stft(x, FS, NFFT)[0],
-        # inv_transform=lambda S: librosa.istft(S, n_fft=NFFT, hop_length=HLEN, center=True),
-        inputs_mat = []
-        for x in inputs:
-            x_mat = self.transform(x)
-            x_mat /= np.sum(x_mat, axis=0, keepdims=True)  # normalize columns
-            inputs_mat.append(x_mat)
+            inputs_mat.append(melspec)
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
@@ -83,7 +74,7 @@ class ActivationLearner:
         logger.debug(f"Shape of H: {H.shape}")
         logger.debug(f"Shape of V: {V.shape}")
 
-        self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add, **nmf_kwargs)
+        self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add)
 
     def iterate(self):
         if self.learn_add:
@@ -163,15 +154,16 @@ class ActivationLearner:
 
     def plot(self):
         CMAP = "turbo"
-        SPECFUNC = lambda S, ax: librosa.display.specshow(
-            librosa.power_to_db(S),
-            ax=ax,
-            cmap=CMAP,
-            hop_length=self.hop_len,
-            sr=self.fs,
-            x_axis="time",
-            y_axis="mel",
-        )
+        # SPECFUNC = lambda S, ax: librosa.display.specshow(
+        #     librosa.power_to_db(S),
+        #     ax=ax,
+        #     cmap=CMAP,
+        #     hop_length=self.hop_len,
+        #     sr=self.fs,
+        #     x_axis="time",
+        #     y_axis="mel",
+        # )
+        SPECFUNC = lambda S, ax: ax.imshow(librosa.power_to_db(S), cmap=CMAP, aspect="auto", origin="lower", interpolation='none')
 
         # Plot the H matrix
         fig, axes = plt.subplots(3, 2, figsize=(15, 8))
@@ -189,10 +181,10 @@ class ActivationLearner:
         for track, (a, b) in enumerate(zip(self.split_idx, self.split_idx[1:])):
             axes[0, 0].axhline(a, color="r", linestyle="--")
             axes[0, 0].annotate(f"track {track}", (0, (a + b) / 2), color="red")
-            axes[0, 1].axvline(a / self.fs * self.hop_len, color="r", linestyle="--")
-            axes[0, 1].annotate(
-                f"track {track}", ((a + b) / 2 / self.fs * self.hop_len, 1), color="red"
-            )
+            # axes[0, 1].axvline(a / self.fs * self.hop_len, color="r", linestyle="--")
+            # axes[0, 1].annotate(
+                # f"track {track}", ((a + b) / 2 / self.fs * self.hop_len, 1), color="red"
+            # 
 
         im = SPECFUNC(self.nmf.V, axes[1, 0])
         axes[1, 0].set_title("$V$ (mix)")
@@ -204,20 +196,20 @@ class ActivationLearner:
 
         colors = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
         for i, v in enumerate(
-            iterable=self.position(threshold=5e-3, weiner=None, medfilt=None)
+            iterable=self.position(threshold=0, weiner=None, medfilt=None)
         ):
-            axes[2, 0].plot(v, alpha=0.2, color=colors[i % len(colors)])
-        for i, v in enumerate(iterable=self.position(threshold=5e-3)):
-            axes[2, 0].plot(v, label=f"track {i}", color=colors[i % len(colors)])
+            axes[2, 0].plot(v, color=colors[i % len(colors)], label=f"track {i}",)
+        # for i, v in enumerate(iterable=self.position(threshold=5e-3)):
+        #     axes[2, 0].plot(v,  color=colors[i % len(colors)])
         axes[2, 0].legend()
         axes[2, 0].set_title("track time")
         axes[2, 0].set_xlabel("mix frame")
         axes[2, 0].set_ylabel("ref frame")
 
         for i, v in enumerate(iterable=self.volume(weiner=None, medfilt=None)):
-            axes[2, 1].plot(v, alpha=0.2, color=colors[i % len(colors)])
-        for i, v in enumerate(self.volume()):
-            axes[2, 1].plot(v, label=f"track {i}", color=colors[i % len(colors)])
+            axes[2, 1].plot(v, color=colors[i % len(colors)], label=f"track {i}",)
+        # for i, v in enumerate(self.volume()):
+        #     axes[2, 1].plot(v, label=f"track {i}", color=colors[i % len(colors)])
         axes[2, 1].legend()
         axes[2, 1].set_title("track volume")
         axes[2, 1].set_xlabel("mix frame")
