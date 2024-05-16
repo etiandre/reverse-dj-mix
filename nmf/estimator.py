@@ -51,6 +51,7 @@ class ActivationLearner:
         # transform inputs
         inputs_mat: list[np.ndarray] = []
         for i,x in enumerate(inputs):
+            logging.info(f"Transforming input {i}")
             stft, n_fft = beat_track.variable_stft(x, boundaries[i], win_func=stft_win_func)
             if spec_conv_win is not None:
                 stft = scipy.ndimage.convolve1d(stft, spec_conv_win, axis=1, mode="constant")
@@ -99,7 +100,9 @@ class ActivationLearner:
             )
         else:
             self.nmf.iterate()
-        # self.nmf.H = np.clip(self.nmf.H, 0, 1)
+        H = self.nmf.H.toarray()
+        H = np.clip(H, 0, 1)
+        self.nmf.H = scipy.sparse.bsr_array(H)
 
         # Calculate loss
         loss = self.nmf.loss()
@@ -166,15 +169,6 @@ class ActivationLearner:
 
     def plot(self):
         CMAP = "turbo"
-        # SPECFUNC = lambda S, ax: librosa.display.specshow(
-        #     librosa.power_to_db(S),
-        #     ax=ax,
-        #     cmap=CMAP,
-        #     hop_length=self.hop_len,
-        #     sr=self.fs,
-        #     x_axis="time",
-        #     y_axis="mel",
-        # )
         SPECFUNC = lambda S, ax: ax.imshow(librosa.power_to_db(S), cmap=CMAP, aspect="auto", origin="lower", interpolation='none')
 
         # Plot the H matrix

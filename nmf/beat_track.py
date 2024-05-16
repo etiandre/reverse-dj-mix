@@ -5,6 +5,7 @@ import numpy as np
 import lxml.etree
 import matplotlib.pyplot as plt
 import scipy.ndimage
+from tqdm import tqdm
 
 
 # def variable_win_stft(
@@ -35,7 +36,7 @@ def variable_stft(y: np.ndarray, boundaries: np.ndarray, win_func: Callable=None
     
     nfft = np.max(np.diff(boundaries, axis=1))
     spec = np.zeros((1 + nfft // 2, boundaries.shape[0]), dtype=complex)
-    for i, (left, right) in enumerate(boundaries):
+    for i, (left, right) in enumerate(tqdm(boundaries, desc="STFT")):
         if win_func is not None:
             col = np.fft.rfft(y[left:right] * win_func(right - left), nfft)
         else:
