@@ -48,11 +48,13 @@ def mu_H(W, H, V, beta, l1_reg, l2_reg):
     return H * dH
 
 def mu_H_smooth(W, H, V, lambda_):
+    H = H.toarray()
+    H[H==0] = EPSILON
     F, N = V.shape
     
     Vhat = W @ H
     # Update H
-    dem = W.T @ (Vhat ** -1)
+    dem = W.T @ (Vhat ** -1) + EPSILON
     num = W.T @ (V * Vhat ** -2)
     Ht = H.copy()
 
@@ -72,7 +74,7 @@ def mu_H_smooth(W, H, V, lambda_):
     p0 = -(num[:, N - 1] * Ht[:, N - 1]**2 + lambda_ * H[:, N - 2])
     H[:, N - 1] = (np.sqrt(p1**2 - 4 * p2 * p0) - p1) / (2 * p2)
     
-    return H
+    return scipy.sparse.bsr_array(H)
 
 
 def mu_W(W, H, V, beta, l1_reg, l2_reg):
@@ -154,4 +156,5 @@ class BetaNMF:
 
     def loss(self):
         loss = beta_divergence(self.V, self.W @ self.H, self.beta)
+        #TODO: add smooth penalty
         return loss
