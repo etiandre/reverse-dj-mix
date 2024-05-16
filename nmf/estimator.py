@@ -42,6 +42,7 @@ class ActivationLearner:
         win_size: float = None,
         overlap: float = None,
         n_mels: int = 512,
+        polyphony_penalty: float = 0,
         **nmf_kwargs,
     ):
         assert (boundaries is not None) or (
@@ -66,11 +67,18 @@ class ActivationLearner:
         self.boundaries = boundaries
         self.n_mels = n_mels
         self.fs = fs
+        self.polyphony_penalty = polyphony_penalty
 
         # transform inputs
         inputs_mat: list[np.ndarray] = []
         with multiprocessing.Pool() as pool:
-            f = functools.partial(transform, fs=fs, n_mels=n_mels, stft_win_func=stft_win_func, spec_conv_win=spec_conv_win)
+            f = functools.partial(
+                transform,
+                fs=fs,
+                n_mels=n_mels,
+                stft_win_func=stft_win_func,
+                spec_conv_win=spec_conv_win,
+            )
             inputs_mat: list[np.ndarray] = list(
                 tqdm(
                     pool.imap(f, zip(inputs, boundaries)),
@@ -78,7 +86,6 @@ class ActivationLearner:
                     total=len(inputs),
                 )
             )
-            
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
@@ -105,7 +112,7 @@ class ActivationLearner:
 
         self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add, **nmf_kwargs)
 
-    def iterate(self):
+    def iterate(self, regulation_strength: float = 1.0):
         if self.learn_add:
             # save everything except Wa
             W_save = self.nmf.W[:, : self.split_idx[-2]].copy()
@@ -119,7 +126,16 @@ class ActivationLearner:
         else:
             self.nmf.iterate()
         H = self.nmf.H.toarray()
+
+        if self.polyphony_penalty > 0:
+            H_ = H.copy()
+            poly_limit = 1  # maximum simultaneous activations in one column
+            colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
+            H_[H_ < colCutoff[None, :]] *= (1 - self.polyphony_penalty)
+            H = (1 - regulation_strength) * H + regulation_strength * H_
+        
         H = np.clip(H, 0, 1)
+
         self.nmf.H = scipy.sparse.bsr_array(H)
 
         # Calculate loss
