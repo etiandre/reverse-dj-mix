@@ -17,7 +17,7 @@ import functools
 logger = logging.getLogger(__name__)
 
 
-def transform(input, fs, n_mels, stft_win_func, spec_conv_win):
+def transform_melspec(input, fs, n_mels, stft_win_func, spec_conv_win):
     x, bounds = input
     stft, n_fft = beat_track.variable_stft(x, bounds, win_func=stft_win_func)
     if spec_conv_win is not None:
@@ -29,6 +29,10 @@ def transform(input, fs, n_mels, stft_win_func, spec_conv_win):
 
     return melspec
 
+def transform_mfcc(input, fs, n_mels, stft_win_func, spec_conv_win, n_mfcc):
+    melspec = transform_melspec(input, fs, n_mels, stft_win_func, spec_conv_win)
+    return abs(librosa.feature.mfcc(S=librosa.power_to_db(melspec), n_mfcc=n_mfcc))**2
+    
 
 class ActivationLearner:
     def __init__(
@@ -73,12 +77,20 @@ class ActivationLearner:
         inputs_mat: list[np.ndarray] = []
         with multiprocessing.Pool() as pool:
             f = functools.partial(
-                transform,
+                transform_melspec,
                 fs=fs,
                 n_mels=n_mels,
                 stft_win_func=stft_win_func,
                 spec_conv_win=spec_conv_win,
             )
+            # f = functools.partial(
+            #     transform_mfcc,
+            #     fs=fs,
+            #     n_mels=n_mels,
+            #     stft_win_func=stft_win_func,
+            #     spec_conv_win=spec_conv_win,
+            #     n_mfcc=128
+            # )
             inputs_mat: list[np.ndarray] = list(
                 tqdm(
                     pool.imap(f, zip(inputs, boundaries)),
