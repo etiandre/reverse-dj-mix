@@ -30,31 +30,31 @@ def beta_divergence(x: np.ndarray, y: np.ndarray, beta: float):
     return np.mean(ret)
 
 
-def mu_H(W, H, V, beta, l1_reg_H, l2_reg_H):
+def mu_H(W, H, V, beta, l1_reg, l2_reg):
     Vhat = W @ H
     num = W.T @ (V * Vhat ** (beta - 2))
     dem = W.T @ Vhat ** (beta - 1) + EPSILON
 
     # Add L1 and L2 regularization
-    if l1_reg_H > 0:
-        dem += l1_reg_H
-    if l2_reg_H > 0:
-        dem += l2_reg_H * H
+    if l1_reg > 0:
+        dem += l1_reg
+    if l2_reg > 0:
+        dem += l2_reg * H
 
     dH = num / dem
     return H * dH
 
 
-def mu_W(W, H, V, beta, l1_reg_W, l2_reg_W):
+def mu_W(W, H, V, beta, l1_reg, l2_reg):
     Vhat = W @ H
     num = (V * Vhat ** (beta - 2)) @ H.T
     dem = Vhat ** (beta - 1) @ H.T + EPSILON
 
     # Add L1 and L2 regularization
-    if l1_reg_W > 0:
-        dem += l1_reg_W
-    if l2_reg_W > 0:
-        dem += l2_reg_W * W
+    if l1_reg > 0:
+        dem += l1_reg
+    if l2_reg > 0:
+        dem += l2_reg * W
 
     dW = num / dem
     return W * dW

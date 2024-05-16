@@ -10,8 +10,25 @@ import librosa
 import logging
 import matplotlib.pyplot as plt
 import beat_track
+from tqdm import tqdm
+import multiprocessing
+import functools
 
 logger = logging.getLogger(__name__)
+
+
+def transform(input, fs, n_mels, stft_win_func, spec_conv_win):
+    x, bounds = input
+    stft, n_fft = beat_track.variable_stft(x, bounds, win_func=stft_win_func)
+    if spec_conv_win is not None:
+        stft = scipy.ndimage.convolve1d(stft, spec_conv_win, axis=1, mode="constant")
+
+    mel_f = librosa.filters.mel(sr=fs, n_fft=n_fft, n_mels=n_mels)
+    melspec = mel_f.dot(abs(stft) ** 2)
+    melspec /= np.sum(melspec, axis=0, keepdims=True)  # normalize columns
+
+    return melspec
+
 
 class ActivationLearner:
     def __init__(
@@ -27,21 +44,23 @@ class ActivationLearner:
         n_mels: int = 512,
         **nmf_kwargs,
     ):
-        assert (boundaries is not None) or (win_size is not None and overlap is not None)
-        
+        assert (boundaries is not None) or (
+            win_size is not None and overlap is not None
+        )
+
         if boundaries is None:
-            assert 0<=overlap<=1
+            assert 0 <= overlap <= 1
             win_len = int(win_size * fs)
-            hop_len = int(win_size * fs * (1-overlap))
+            hop_len = int(win_size * fs * (1 - overlap))
             logger.info(f"{win_len=}")
             logger.info(f"{hop_len=}")
             boundaries = []
             for i in inputs:
                 assert win_len < len(i), "window size cannot be larger than input"
-                start = np.arange(0, len(i)-win_len, hop_len)
+                start = np.arange(0, len(i) - win_len, hop_len)
                 end = start + win_len
                 boundaries.append(np.vstack([start, end]).T)
-                
+
         self.learn_add = additional_dim > 0
         self.inputs = inputs
         self.boundaries = boundaries
@@ -50,17 +69,16 @@ class ActivationLearner:
 
         # transform inputs
         inputs_mat: list[np.ndarray] = []
-        for i,x in enumerate(inputs):
-            logging.info(f"Transforming input {i}")
-            stft, n_fft = beat_track.variable_stft(x, boundaries[i], win_func=stft_win_func)
-            if spec_conv_win is not None:
-                stft = scipy.ndimage.convolve1d(stft, spec_conv_win, axis=1, mode="constant")
-
-            mel_f = librosa.filters.mel(sr=fs, n_fft=n_fft, n_mels=n_mels)
-            melspec = mel_f.dot(abs(stft)**2)
-            melspec /= np.sum(melspec, axis=0, keepdims=True)  # normalize columns
-
-            inputs_mat.append(melspec)
+        with multiprocessing.Pool() as pool:
+            f = functools.partial(transform, fs=fs, n_mels=n_mels, stft_win_func=stft_win_func, spec_conv_win=spec_conv_win)
+            inputs_mat: list[np.ndarray] = list(
+                tqdm(
+                    pool.imap(f, zip(inputs, boundaries)),
+                    desc="Transforming inputs",
+                    total=len(inputs),
+                )
+            )
+            
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
@@ -169,28 +187,36 @@ class ActivationLearner:
 
     def plot(self):
         CMAP = "turbo"
-        SPECFUNC = lambda S, ax: ax.imshow(librosa.power_to_db(S), cmap=CMAP, aspect="auto", origin="lower", interpolation='none')
+        SPECFUNC = lambda S, ax: ax.imshow(
+            librosa.power_to_db(S),
+            cmap=CMAP,
+            aspect="auto",
+            origin="lower",
+            interpolation="none",
+        )
 
-        # Plot the H matrix
         fig, axes = plt.subplots(3, 2, figsize=(15, 8))
 
-        im = axes[0, 0].imshow(self.nmf.H.toarray(), cmap=CMAP, aspect="auto", origin="lower")
+        # plot H
+        im = axes[0, 0].imshow(
+            self.nmf.H.toarray(), cmap=CMAP, aspect="auto", origin="lower"
+        )
         axes[0, 0].set_title("H (activations)")
         axes[0, 0].set_xlabel("mix frame")
         axes[0, 0].set_ylabel("ref frame")
         fig.colorbar(im, ax=axes[0, 0])
 
+        # plot W
         im = SPECFUNC(self.nmf.W, axes[0, 1])
         fig.colorbar(mappable=im, ax=axes[0, 1])
         axes[0, 1].set_title("$W$ (reference tracks)")
 
+        # annotate track boundaries
         for track, (a, b) in enumerate(zip(self.split_idx, self.split_idx[1:])):
-            axes[0, 0].axhline(a, color="r", linestyle="--")
+            axes[0, 0].axhline(a - 0.5, color="r", linestyle="--")
             axes[0, 0].annotate(f"track {track}", (0, (a + b) / 2), color="red")
-            # axes[0, 1].axvline(a / self.fs * self.hop_len, color="r", linestyle="--")
-            # axes[0, 1].annotate(
-                # f"track {track}", ((a + b) / 2 / self.fs * self.hop_len, 1), color="red"
-            # 
+            axes[0, 1].axvline(a - 0.5, color="r", linestyle="--")
+            axes[0, 1].annotate(f"track {track}", ((a + b) / 2, 1), color="red")
 
         im = SPECFUNC(self.nmf.V, axes[1, 0])
         axes[1, 0].set_title("$V$ (mix)")
@@ -201,21 +227,28 @@ class ActivationLearner:
         fig.colorbar(mappable=im, ax=axes[1, 1])
 
         colors = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
-        for i, v in enumerate(
-            iterable=self.position(threshold=0, weiner=None, medfilt=None)
-        ):
-            axes[2, 0].plot(v, color=colors[i % len(colors)], label=f"track {i}",)
-        # for i, v in enumerate(iterable=self.position(threshold=5e-3)):
-        #     axes[2, 0].plot(v,  color=colors[i % len(colors)])
-        axes[2, 0].legend()
+        positions = self.position(threshold=0, weiner=None, medfilt=None)
+        volumes = self.volume(weiner=None, medfilt=None)
+
+        for i, v in enumerate(positions):
+            v = np.vstack([np.arange(len(v)), v]).T
+            for j, ((x0, y0), (x1, y1)) in enumerate(zip(v[:-1], v[1:])):
+                axes[2, 0].plot(
+                    (x0, x1),
+                    (y0, y1),
+                    color=colors[i % len(colors)],
+                    alpha=volumes[i][j] ** 2,
+                )
         axes[2, 0].set_title("track time")
         axes[2, 0].set_xlabel("mix frame")
         axes[2, 0].set_ylabel("ref frame")
 
-        for i, v in enumerate(iterable=self.volume(weiner=None, medfilt=None)):
-            axes[2, 1].plot(v, color=colors[i % len(colors)], label=f"track {i}",)
-        # for i, v in enumerate(self.volume()):
-        #     axes[2, 1].plot(v, label=f"track {i}", color=colors[i % len(colors)])
+        for i, v in enumerate(volumes):
+            axes[2, 1].plot(
+                v,
+                color=colors[i % len(colors)],
+                label=f"track {i}",
+            )
         axes[2, 1].legend()
         axes[2, 1].set_title("track volume")
         axes[2, 1].set_xlabel("mix frame")
