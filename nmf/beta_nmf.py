@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse
 
 EPSILON = np.finfo(np.float32).eps
 
@@ -64,7 +65,7 @@ class BetaNMF:
         self,
         V: np.ndarray,
         W: np.ndarray,
-        H: np.ndarray,
+        H: scipy.sparse.sparray,
         beta: float,
         fixed_W: bool = False,
         fixed_H: bool = False,
@@ -73,8 +74,8 @@ class BetaNMF:
         alpha_H: float = 0,
         l1_ratio: float = 0,
     ):
-        assert not np.isnan(H).any(), "H contains NaN"
-        assert np.all(H >= 0), "H is negative"
+        assert not np.isnan(H.toarray()).any(), "H contains NaN"
+        assert np.all(H.toarray() >= 0), "H is negative"
         # if beta == 0:
         #     assert np.all(H > 0), "H cannot have 0 values if beta==0"
         assert not np.isnan(W).any(), "W contains NaN"

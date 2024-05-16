@@ -1,6 +1,8 @@
 import numpy as np
 from typing import List, Callable, Optional
 import warnings
+
+import scipy.sparse
 from beta_nmf import BetaNMF
 import scipy.ndimage
 import scipy.signal
@@ -20,19 +22,26 @@ class ActivationLearner:
         boundaries: list[np.ndarray] = None,
         stft_win_func: Callable = None,
         spec_conv_win: np.ndarray = None,
-        win_len: float = None,
-        hop_len: float = None,
+        win_size: float = None,
+        overlap: float = None,
         n_mels: int = 512,
+        **nmf_kwargs,
     ):
-        assert (boundaries is not None) or (win_len is not None and hop_len is not None)
+        assert (boundaries is not None) or (win_size is not None and overlap is not None)
         
         if boundaries is None:
-            assert win_len is not None
-            assert hop_len is not None
-            starts = [np.arange(0, len(i)-win_len, hop_len) for i in inputs]
-            ends = [i + win_len for i in starts]
-            boundaries = [np.vstack([starts[i], ends[i]]).T for i in range(len(inputs))]
-            
+            assert 0<=overlap<=1
+            win_len = int(win_size * fs)
+            hop_len = int(win_size * fs * (1-overlap))
+            logger.info(f"{win_len=}")
+            logger.info(f"{hop_len=}")
+            boundaries = []
+            for i in inputs:
+                assert win_len < len(i), "window size cannot be larger than input"
+                start = np.arange(0, len(i)-win_len, hop_len)
+                end = start + win_len
+                boundaries.append(np.vstack([start, end]).T)
+                
         self.learn_add = additional_dim > 0
         self.inputs = inputs
         self.boundaries = boundaries
@@ -69,12 +78,13 @@ class ActivationLearner:
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
+        H = scipy.sparse.bsr_array(H)
 
         logger.debug(f"Shape of W: {W.shape}")
         logger.debug(f"Shape of H: {H.shape}")
         logger.debug(f"Shape of V: {V.shape}")
 
-        self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add)
+        self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add, **nmf_kwargs)
 
     def iterate(self):
         if self.learn_add:
@@ -89,7 +99,7 @@ class ActivationLearner:
             )
         else:
             self.nmf.iterate()
-        self.nmf.H = np.clip(self.nmf.H, 0, 1)
+        # self.nmf.H = np.clip(self.nmf.H, 0, 1)
 
         # Calculate loss
         loss = self.nmf.loss()
@@ -99,10 +109,11 @@ class ActivationLearner:
 
     def volume(self, weiner: Optional[int] = 3, medfilt: Optional[int] = 7):
         ret = []
+        H = self.nmf.H.toarray()
         if weiner is not None:
-            Hfilt = scipy.signal.wiener(self.nmf.H, mysize=(weiner, weiner))
+            Hfilt = scipy.signal.wiener(H, mysize=(weiner, weiner))
         else:
-            Hfilt = self.nmf.H
+            Hfilt = H
 
         sum = Hfilt.sum(axis=0)
         for left, right in zip(self.split_idx, self.split_idx[1:]):
@@ -116,10 +127,11 @@ class ActivationLearner:
         self, threshold=1e-5, weiner: Optional[int] = 3, medfilt: Optional[int] = 7
     ):
         ret = []
+        H = self.nmf.H.toarray()
         if weiner is not None:
-            Hfilt = scipy.signal.wiener(self.nmf.H, mysize=(weiner, weiner))
+            Hfilt = scipy.signal.wiener(H, mysize=(weiner, weiner))
         else:
-            Hfilt = self.nmf.H
+            Hfilt = H
 
         for left, right in zip(self.split_idx, self.split_idx[1:]):
             _, N = Hfilt.shape
@@ -168,7 +180,7 @@ class ActivationLearner:
         # Plot the H matrix
         fig, axes = plt.subplots(3, 2, figsize=(15, 8))
 
-        im = axes[0, 0].imshow(self.nmf.H, cmap=CMAP, aspect="auto", origin="lower")
+        im = axes[0, 0].imshow(self.nmf.H.toarray(), cmap=CMAP, aspect="auto", origin="lower")
         axes[0, 0].set_title("H (activations)")
         axes[0, 0].set_xlabel("mix frame")
         axes[0, 0].set_ylabel("ref frame")
