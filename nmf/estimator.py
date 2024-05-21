@@ -25,14 +25,22 @@ def transform_melspec(input, fs, n_mels, stft_win_func, spec_conv_win):
 
     mel_f = librosa.filters.mel(sr=fs, n_fft=n_fft, n_mels=n_mels)
     melspec = mel_f.dot(abs(stft) ** 2)
-    melspec /= np.sum(melspec, axis=0, keepdims=True)  # normalize columns
+    colsum = np.sum(melspec, axis=0, keepdims=True)
+    melspec /= colsum  # normalize columns
 
-    return melspec
+    return melspec, stft, colsum
+
 
 def transform_mfcc(input, fs, n_mels, stft_win_func, spec_conv_win, n_mfcc):
-    melspec = transform_melspec(input, fs, n_mels, stft_win_func, spec_conv_win)
-    return abs(librosa.feature.mfcc(S=librosa.power_to_db(melspec), n_mfcc=n_mfcc))**2
-    
+    melspec, stft, colsum = transform_melspec(
+        input, fs, n_mels, stft_win_func, spec_conv_win
+    )
+    return (
+        abs(librosa.feature.mfcc(S=librosa.power_to_db(melspec), n_mfcc=n_mfcc)) ** 2,
+        stft,
+        colsum,
+    )
+
 
 class ActivationLearner:
     def __init__(
@@ -74,7 +82,6 @@ class ActivationLearner:
         self.polyphony_penalty = polyphony_penalty
 
         # transform inputs
-        inputs_mat: list[np.ndarray] = []
         with multiprocessing.Pool() as pool:
             f = functools.partial(
                 transform_melspec,
@@ -91,13 +98,16 @@ class ActivationLearner:
             #     spec_conv_win=spec_conv_win,
             #     n_mfcc=128
             # )
-            inputs_mat: list[np.ndarray] = list(
+            out = list(
                 tqdm(
                     pool.imap(f, zip(inputs, boundaries)),
                     desc="Transforming inputs",
                     total=len(inputs),
                 )
             )
+            inputs_mat, inputs_stft, colsum = zip(*out)
+        self.inputs_stft = inputs_stft
+        self.colsum = colsum
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
@@ -143,9 +153,9 @@ class ActivationLearner:
             H_ = H.copy()
             poly_limit = 1  # maximum simultaneous activations in one column
             colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
-            H_[H_ < colCutoff[None, :]] *= (1 - self.polyphony_penalty)
+            H_[H_ < colCutoff[None, :]] *= 1 - self.polyphony_penalty
             H = (1 - regulation_strength) * H + regulation_strength * H_
-        
+
         H = np.clip(H, 0, 1)
 
         self.nmf.H = scipy.sparse.bsr_array(H)
@@ -155,46 +165,6 @@ class ActivationLearner:
         assert not np.isnan(loss).any(), "NaN in loss"
 
         return loss
-
-    def volume(self, weiner: Optional[int] = 3, medfilt: Optional[int] = 7):
-        ret = []
-        H = self.nmf.H.toarray()
-        if weiner is not None:
-            Hfilt = scipy.signal.wiener(H, mysize=(weiner, weiner))
-        else:
-            Hfilt = H
-
-        sum = Hfilt.sum(axis=0)
-        for left, right in zip(self.split_idx, self.split_idx[1:]):
-            vol = Hfilt[left:right, :].sum(axis=0) / sum
-            if medfilt is not None:
-                vol = scipy.signal.medfilt(vol, medfilt)
-            ret.append(vol)
-        return ret
-
-    def position(
-        self, threshold=1e-5, weiner: Optional[int] = 3, medfilt: Optional[int] = 7
-    ):
-        ret = []
-        H = self.nmf.H.toarray()
-        if weiner is not None:
-            Hfilt = scipy.signal.wiener(H, mysize=(weiner, weiner))
-        else:
-            Hfilt = H
-
-        for left, right in zip(self.split_idx, self.split_idx[1:]):
-            _, N = Hfilt.shape
-            pos = np.empty(N)
-            for i in range(N):
-                col = Hfilt[left:right, i] ** 2
-                if col.sum() >= threshold:
-                    pos[i] = scipy.ndimage.center_of_mass(col)[0]
-                else:
-                    pos[i] = np.nan
-            if medfilt is not None:
-                pos = scipy.signal.medfilt(pos, medfilt)
-            ret.append(pos)
-        return ret
 
     def reconstruct(self, i: int):
         a = self.split_idx[i]
@@ -223,7 +193,7 @@ class ActivationLearner:
             interpolation="none",
         )
 
-        fig, axes = plt.subplots(3, 2, figsize=(15, 8))
+        fig, axes = plt.subplots(2, 2, figsize=(15, 6))
 
         # plot H
         im = axes[0, 0].imshow(
@@ -253,33 +223,6 @@ class ActivationLearner:
         im = SPECFUNC(self.nmf.W @ self.nmf.H, axes[1, 1])
         axes[1, 1].set_title("$\\hat{V} = WH$ (estimated mix)")
         fig.colorbar(mappable=im, ax=axes[1, 1])
-
-        colors = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
-        positions = self.position(threshold=0, weiner=None, medfilt=None)
-        volumes = self.volume(weiner=None, medfilt=None)
-
-        for i, v in enumerate(positions):
-            v = np.vstack([np.arange(len(v)), v]).T
-            for j, ((x0, y0), (x1, y1)) in enumerate(zip(v[:-1], v[1:])):
-                axes[2, 0].plot(
-                    (x0, x1),
-                    (y0, y1),
-                    color=colors[i % len(colors)],
-                    alpha=volumes[i][j] ** 2,
-                )
-        axes[2, 0].set_title("track time")
-        axes[2, 0].set_xlabel("mix frame")
-        axes[2, 0].set_ylabel("ref frame")
-
-        for i, v in enumerate(volumes):
-            axes[2, 1].plot(
-                v,
-                color=colors[i % len(colors)],
-                label=f"track {i}",
-            )
-        axes[2, 1].legend()
-        axes[2, 1].set_title("track volume")
-        axes[2, 1].set_xlabel("mix frame")
 
         plt.tight_layout()
         plt.show()
