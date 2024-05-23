@@ -29,6 +29,7 @@ def beta_divergence(x: np.ndarray, y: np.ndarray, beta: float):
         )
     return np.mean(ret)
 
+
 def smooth_penalty(lambda_):
     return lambda_ * (np.sum(R.flatten() - np.log(R.flatten())) - K * (N - 1))
 
@@ -47,33 +48,55 @@ def mu_H(W, H, V, beta, l1_reg, l2_reg):
     dH = num / dem
     return H * dH
 
-def mu_H_smooth(W, H, V, lambda_):
+
+def mu_H_smooth_diago(W, H, V, beta, lambda_):
     H = H.toarray()
-    H[H==0] = EPSILON
+    Vhat = W @ H
+    num = W.T @ (V * Vhat ** (beta - 2))
+    dem = W.T @ Vhat ** (beta - 1) + EPSILON
+
+    grad_H_pos = 4 * H
+    grad_H_neg = np.zeros_like(H)
+    for i in range(1, H.shape[0] - 1):
+        for j in range(1, H.shape[1] - 1):
+            grad_H_neg[i, j] = 2 * (H[i + 1, j + 1] - H[i - 1, j - 1])
+
+    num += lambda_ * grad_H_neg
+    dem += lambda_ * grad_H_pos
+    dH = num / dem
+    return scipy.sparse.bsr_array(H * dH)
+
+
+def mu_H_smooth_fevotte(W, H, V, lambda_):
+    H = H.toarray()
+    H[H == 0] = EPSILON
     F, N = V.shape
-    
+
     Vhat = W @ H
     # Update H
-    dem = W.T @ (Vhat ** -1) + EPSILON
-    num = W.T @ (V * Vhat ** -2)
+    dem = W.T @ (Vhat**-1) + EPSILON
+    num = W.T @ (V * Vhat**-2)
     Ht = H.copy()
 
     # first column: n = 0
     p2 = dem[:, 0] + lambda_ / H[:, 1]
     p1 = -lambda_
-    p0 = -num[:, 0] * Ht[:, 0]**2
+    p0 = -num[:, 0] * Ht[:, 0] ** 2
     H[:, 0] = (np.sqrt(p1**2 - 4 * p2 * p0) - p1) / (2 * p2)
 
     # middle columns: n = 1 to N-2
     for n in range(1, N - 1):
-        H[:, n] = np.sqrt((num[:, n] * Ht[:, n]**2 + lambda_ * H[:, n - 1]) / (dem[:, n] + lambda_ / H[:, n + 1]))
+        H[:, n] = np.sqrt(
+            (num[:, n] * Ht[:, n] ** 2 + lambda_ * H[:, n - 1])
+            / (dem[:, n] + lambda_ / H[:, n + 1])
+        )
 
     # last column: n = N-1
     p2 = dem[:, N - 1]
     p1 = lambda_
-    p0 = -(num[:, N - 1] * Ht[:, N - 1]**2 + lambda_ * H[:, N - 2])
+    p0 = -(num[:, N - 1] * Ht[:, N - 1] ** 2 + lambda_ * H[:, N - 2])
     H[:, N - 1] = (np.sqrt(p1**2 - 4 * p2 * p0) - p1) / (2 * p2)
-    
+
     return scipy.sparse.bsr_array(H)
 
 
@@ -91,6 +114,7 @@ def mu_W(W, H, V, beta, l1_reg, l2_reg):
     dW = num / dem
     return W * dW
 
+
 class BetaNMF:
     def __init__(
         self,
@@ -104,6 +128,7 @@ class BetaNMF:
         alpha_H: float = 0,
         l1_ratio: float = 0,
         lambda_smooth: float = 0,
+        lambda_diago: float = 0,
     ):
         assert not np.isnan(H.toarray()).any(), "H contains NaN"
         assert np.all(H.toarray() >= 0), "H is negative"
@@ -116,12 +141,16 @@ class BetaNMF:
         assert not (fixed_W and fixed_H), "Cannot fix both W and H"
 
         if lambda_smooth > 0:
-            assert alpha_W == 0 and alpha_H == 0, "Cannot use l1 or l2 regularization with is_smooth"
+            assert (
+                alpha_W == 0 and alpha_H == 0
+            ), "Cannot use l1 or l2 regularization with is_smooth"
             assert beta == 0, "Cannot use beta!=0 with is_smooth"
-            algorithm = "is_smooth"
+            algorithm = "is_smooth_fevotte"
+        elif lambda_diago > 0:
+            algorithm = "is_smooth_diago"
         else:
             algorithm = "mu"
-
+        print(f"Using algorithm {algorithm}")
         self.V = V  # FxN
         self.W = W  # FxK
         self.H = H  # KxN
@@ -129,6 +158,7 @@ class BetaNMF:
         self.fixed_W = fixed_W
         self.fixed_H = fixed_H
         self.lambda_smooth = lambda_smooth
+        self.lambda_diago = lambda_diago
         self.algorithm = algorithm
 
         # compute regularization
@@ -144,8 +174,12 @@ class BetaNMF:
                 self.H = mu_H(
                     self.W, self.H, self.V, self.beta, self.l1_reg_H, self.l2_reg_H
                 )
-            elif self.algorithm == "is_smooth":
-                self.H = mu_H_smooth(self.W, self.H, self.V, self.lambda_smooth)
+            elif self.algorithm == "is_smooth_fevotte":
+                self.H = mu_H_smooth_fevotte(self.W, self.H, self.V, self.lambda_smooth)
+            elif self.algorithm == "is_smooth_diago":
+                self.H = mu_H_smooth_diago(
+                    self.W, self.H, self.V, self.beta, self.lambda_diago
+                )
             else:
                 raise NotImplementedError
 
@@ -156,5 +190,5 @@ class BetaNMF:
 
     def loss(self):
         loss = beta_divergence(self.V, self.W @ self.H, self.beta)
-        #TODO: add smooth penalty
+        # TODO: add smooth penalty
         return loss

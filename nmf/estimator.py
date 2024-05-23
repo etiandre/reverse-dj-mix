@@ -17,29 +17,22 @@ import functools
 logger = logging.getLogger(__name__)
 
 
-def transform_melspec(input, fs, n_mels, stft_win_func, spec_conv_win):
-    x, bounds = input
-    stft, n_fft = beat_track.variable_stft(x, bounds, win_func=stft_win_func)
-    if spec_conv_win is not None:
-        stft = scipy.ndimage.convolve1d(stft, spec_conv_win, axis=1, mode="constant")
-
-    mel_f = librosa.filters.mel(sr=fs, n_fft=n_fft, n_mels=n_mels)
-    melspec = mel_f.dot(abs(stft) ** 2)
+def transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
+    spec = librosa.stft(
+        input,
+        n_fft=win_len,
+        hop_length=hop_len,
+        win_length=win_len,
+        center=False,
+        window=stft_win_func,
+    )
+    mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
+    melspec = mel_f.dot(abs(spec) ** 2)
     colsum = np.sum(melspec, axis=0, keepdims=True)
+    colsum[colsum == 0] = 1e-30  # TODO this is a hack
     melspec /= colsum  # normalize columns
 
-    return melspec, stft, colsum
-
-
-def transform_mfcc(input, fs, n_mels, stft_win_func, spec_conv_win, n_mfcc):
-    melspec, stft, colsum = transform_melspec(
-        input, fs, n_mels, stft_win_func, spec_conv_win
-    )
-    return (
-        abs(librosa.feature.mfcc(S=librosa.power_to_db(melspec), n_mfcc=n_mfcc)) ** 2,
-        stft,
-        colsum,
-    )
+    return melspec, colsum
 
 
 class ActivationLearner:
@@ -47,39 +40,28 @@ class ActivationLearner:
         self,
         inputs: list[np.ndarray],
         fs: int,
+        win_size: float,
+        hop_size: float,
         additional_dim: int = 0,
-        boundaries: list[np.ndarray] = None,
-        stft_win_func: Callable = None,
-        spec_conv_win: np.ndarray = None,
-        win_size: float = None,
-        overlap: float = None,
+        stft_win_func: str = "hann",
         n_mels: int = 512,
         polyphony_penalty: float = 0,
         **nmf_kwargs,
     ):
-        assert (boundaries is not None) or (
-            win_size is not None and overlap is not None
-        )
-
-        if boundaries is None:
-            assert 0 <= overlap <= 1
-            win_len = int(win_size * fs)
-            hop_len = int(win_size * fs * (1 - overlap))
-            logger.info(f"{win_len=}")
-            logger.info(f"{hop_len=}")
-            boundaries = []
-            for i in inputs:
-                assert win_len < len(i), "window size cannot be larger than input"
-                start = np.arange(0, len(i) - win_len, hop_len)
-                end = start + win_len
-                boundaries.append(np.vstack([start, end]).T)
+        assert hop_size < win_size
+        win_len = int(win_size * fs)
+        hop_len = int(hop_size * fs)
+        logger.info(f"{win_len=}")
+        logger.info(f"{hop_len=}")
+        logger.info(f"overlap={1-hop_size/win_size:%}")
 
         self.learn_add = additional_dim > 0
         self.inputs = inputs
-        self.boundaries = boundaries
         self.n_mels = n_mels
         self.fs = fs
         self.polyphony_penalty = polyphony_penalty
+        self.win_size = win_size
+        self.hop_size = hop_size
 
         # transform inputs
         with multiprocessing.Pool() as pool:
@@ -88,25 +70,17 @@ class ActivationLearner:
                 fs=fs,
                 n_mels=n_mels,
                 stft_win_func=stft_win_func,
-                spec_conv_win=spec_conv_win,
+                win_len=win_len,
+                hop_len=hop_len,
             )
-            # f = functools.partial(
-            #     transform_mfcc,
-            #     fs=fs,
-            #     n_mels=n_mels,
-            #     stft_win_func=stft_win_func,
-            #     spec_conv_win=spec_conv_win,
-            #     n_mfcc=128
-            # )
             out = list(
                 tqdm(
-                    pool.imap(f, zip(inputs, boundaries)),
+                    pool.imap(f, inputs),
                     desc="Transforming inputs",
                     total=len(inputs),
                 )
             )
-            inputs_mat, inputs_stft, colsum = zip(*out)
-        self.inputs_stft = inputs_stft
+            inputs_mat, colsum = zip(*out)
         self.colsum = colsum
 
         # compute indexes of track boundaries

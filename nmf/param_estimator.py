@@ -1,3 +1,4 @@
+import librosa
 import numpy as np
 import scipy.ndimage
 import matplotlib.pyplot as plt
@@ -6,14 +7,14 @@ import matplotlib.pyplot as plt
 def volumes(H: np.ndarray, colsum, split_idx):
     H = H.copy()
     # de-normalize by mix
-    # H *= colsum[-1]
+    H *= colsum[-1]
     # de-normalize by each track
-    # H /= np.hstack(colsum[:-1]).T
+    H /= np.hstack(colsum[:-1]).T
 
     volumes = []
     for left, right in zip(split_idx, split_idx[1:]):
         H_track = H[left:right, :]
-        vol = H_track.sum(axis=0)/H.sum(axis=0)  # TODO: test other statistics ?
+        vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
         volumes.append(vol)
     return volumes
 
@@ -29,26 +30,15 @@ def positions(H: np.ndarray, split_idx):
         ret.append(pos)
     return ret
 
-
-def frames_to_times(frames, bounds, fs, center=False):
-    if center:
-        times = np.mean(bounds, axis=1) / fs
-    else:
-        times = bounds[:, 0] / fs
-
-    return np.interp(frames, np.arange(len(times)), times)
-
-
 def plot_vol_pos(
-    volumes: np.ndarray, positions: np.ndarray, bounds: np.ndarray, fs, center=True
+    volumes: np.ndarray, positions: np.ndarray, win_size: float
 ):
     colors = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
 
-    mix_time = frames_to_times(np.arange(len(bounds[-1])), bounds[-1], fs, center)
-
+    mix_time = np.arange(len(volumes[0])) * win_size
     fig, axes = plt.subplots(2, 1, figsize=(5 * len(volumes), 6))
     for i, ref_frames in enumerate(positions):
-        y = frames_to_times(ref_frames, bounds[i], fs, center)
+        y = ref_frames * win_size
         coords = np.vstack([mix_time, y]).T
         for j, ((x0, y0), (x1, y1)) in enumerate(zip(coords[:-1], coords[1:])):
             axes[0].plot(
