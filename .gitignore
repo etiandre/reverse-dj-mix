@@ -11,3 +11,4 @@ datasets
 *.wav
 *.reapeaks
 *.bkp
+runs/

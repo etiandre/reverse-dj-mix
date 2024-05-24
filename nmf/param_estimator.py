@@ -14,7 +14,8 @@ def volumes(H: np.ndarray, colsum, split_idx):
     volumes = []
     for left, right in zip(split_idx, split_idx[1:]):
         H_track = H[left:right, :]
-        vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
+        # vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
+        vol = H_track.sum(axis=0) # TODO: test other statistics ?
         volumes.append(vol)
     return volumes
 

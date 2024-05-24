@@ -1,5 +1,4 @@
 import numpy as np
-from typing import List, Callable, Optional
 import warnings
 
 import scipy.sparse
@@ -9,7 +8,6 @@ import scipy.signal
 import librosa
 import logging
 import matplotlib.pyplot as plt
-import beat_track
 from tqdm import tqdm
 import multiprocessing
 import functools
@@ -29,7 +27,7 @@ def transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
     melspec = mel_f.dot(abs(spec) ** 2)
     colsum = np.sum(melspec, axis=0, keepdims=True)
-    colsum[colsum == 0] = 1e-30  # TODO this is a hack
+    colsum[colsum == 0] = 1e-80  # TODO this is a hack
     melspec /= colsum  # normalize columns
 
     return melspec, colsum
@@ -48,7 +46,6 @@ class ActivationLearner:
         polyphony_penalty: float = 0,
         **nmf_kwargs,
     ):
-        assert hop_size < win_size
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
         logger.info(f"{win_len=}")

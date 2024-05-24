@@ -27,7 +27,7 @@ def beta_divergence(x: np.ndarray, y: np.ndarray, beta: float):
             / beta
             / (beta - 1)
         )
-    return np.mean(ret)
+    return np.sum(ret)
 
 
 def smooth_penalty(lambda_):
@@ -60,6 +60,25 @@ def mu_H_smooth_diago(W, H, V, beta, lambda_):
     for i in range(1, H.shape[0] - 1):
         for j in range(1, H.shape[1] - 1):
             grad_H_neg[i, j] = 2 * (H[i + 1, j + 1] - H[i - 1, j - 1])
+
+    num += lambda_ * grad_H_neg
+    dem += lambda_ * grad_H_pos
+    dH = num / dem
+    return scipy.sparse.bsr_array(H * dH)
+
+
+def mu_H_variance_col(W, H, V, beta, lambda_):
+    H = H.toarray()
+    Vhat = W @ H
+    num = W.T @ (V * Vhat ** (beta - 2))
+    dem = W.T @ Vhat ** (beta - 1) + EPSILON
+
+    F, N = H.shape
+    grad_H_pos = 2 / (N * F) * H
+    grad_H_neg = np.zeros_like(H)
+    for i in range(0, H.shape[0] - 1):
+        for j in range(0, H.shape[1] - 1):
+            grad_H_neg[i, j] = 2 / (F * N**2) * np.sum(H[i, :])
 
     num += lambda_ * grad_H_neg
     dem += lambda_ * grad_H_pos
@@ -129,6 +148,7 @@ class BetaNMF:
         l1_ratio: float = 0,
         lambda_smooth: float = 0,
         lambda_diago: float = 0,
+        lambda_variance: float = 0,
     ):
         assert not np.isnan(H.toarray()).any(), "H contains NaN"
         assert np.all(H.toarray() >= 0), "H is negative"
@@ -147,7 +167,9 @@ class BetaNMF:
             assert beta == 0, "Cannot use beta!=0 with is_smooth"
             algorithm = "is_smooth_fevotte"
         elif lambda_diago > 0:
-            algorithm = "is_smooth_diago"
+            algorithm = "mu_smooth_diago"
+        elif lambda_variance > 0:
+            algorithm = "mu_variance"
         else:
             algorithm = "mu"
         print(f"Using algorithm {algorithm}")
@@ -159,6 +181,7 @@ class BetaNMF:
         self.fixed_H = fixed_H
         self.lambda_smooth = lambda_smooth
         self.lambda_diago = lambda_diago
+        self.lambda_variance = lambda_variance
         self.algorithm = algorithm
 
         # compute regularization
@@ -176,9 +199,13 @@ class BetaNMF:
                 )
             elif self.algorithm == "is_smooth_fevotte":
                 self.H = mu_H_smooth_fevotte(self.W, self.H, self.V, self.lambda_smooth)
-            elif self.algorithm == "is_smooth_diago":
+            elif self.algorithm == "mu_smooth_diago":
                 self.H = mu_H_smooth_diago(
                     self.W, self.H, self.V, self.beta, self.lambda_diago
+                )
+            elif self.algorithm == "mu_variance":
+                self.H = mu_H_variance_col(
+                    self.W, self.H, self.V, self.beta, self.lambda_variance
                 )
             else:
                 raise NotImplementedError
@@ -189,6 +216,10 @@ class BetaNMF:
             )
 
     def loss(self):
-        loss = beta_divergence(self.V, self.W @ self.H, self.beta)
+        losses = [beta_divergence(self.V, self.W @ self.H, self.beta)]
+        if self.lambda_variance > 0:
+            losses.append(
+                self.lambda_variance * np.mean(np.var(self.H.toarray(), axis=0))
+            )
         # TODO: add smooth penalty
-        return loss
+        return losses
