@@ -27,7 +27,7 @@ def transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
     melspec = mel_f.dot(abs(spec) ** 2)
     colsum = np.sum(melspec, axis=0, keepdims=True)
-    colsum[colsum == 0] = 1e-80  # TODO this is a hack
+    colsum[colsum == 0] = 1e-30  # TODO this is a hack
     melspec /= colsum  # normalize columns
 
     return melspec, colsum

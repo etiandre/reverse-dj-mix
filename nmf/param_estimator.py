@@ -7,15 +7,15 @@ import matplotlib.pyplot as plt
 def volumes(H: np.ndarray, colsum, split_idx):
     H = H.copy()
     # de-normalize by mix
-    H *= colsum[-1]
+    # H *= colsum[-1]
     # de-normalize by each track
-    H /= np.hstack(colsum[:-1]).T
+    # H /= np.hstack(colsum[:-1]).T
 
     volumes = []
     for left, right in zip(split_idx, split_idx[1:]):
         H_track = H[left:right, :]
-        # vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
-        vol = H_track.sum(axis=0) # TODO: test other statistics ?
+        vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
+        # vol = H_track.sum(axis=0) # TODO: test other statistics ?
         volumes.append(vol)
     return volumes
 
