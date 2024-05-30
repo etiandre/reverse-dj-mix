@@ -40,6 +40,7 @@ class ActivationLearner:
         fs: int,
         win_size: float,
         hop_size: float,
+        beta=0,
         additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
@@ -103,7 +104,7 @@ class ActivationLearner:
         logger.debug(f"Shape of H: {H.shape}")
         logger.debug(f"Shape of V: {V.shape}")
 
-        self.nmf = BetaNMF(V, W, H, 0, fixed_W=not self.learn_add, **nmf_kwargs)
+        self.nmf = BetaNMF(V, W, H, beta, fixed_W=not self.learn_add, **nmf_kwargs)
 
     def iterate(self, regulation_strength: float = 1.0):
         if self.learn_add:

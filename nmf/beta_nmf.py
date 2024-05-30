@@ -27,7 +27,7 @@ def beta_divergence(x: np.ndarray, y: np.ndarray, beta: float):
             / beta
             / (beta - 1)
         )
-    return np.sum(ret)
+    return np.mean(ret)
 
 
 def smooth_penalty(lambda_):
