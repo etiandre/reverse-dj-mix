@@ -4,20 +4,15 @@ import scipy.ndimage
 import matplotlib.pyplot as plt
 
 
-def volumes(H: np.ndarray, colsum, split_idx):
+def volumes(H: np.ndarray, split_idx):
     H = H.copy()
-    # de-normalize by mix
-    # H *= colsum[-1]
-    # de-normalize by each track
-    # H /= np.hstack(colsum[:-1]).T
 
     volumes = []
     for left, right in zip(split_idx, split_idx[1:]):
         H_track = H[left:right, :]
-        vol = H_track.sum(axis=0) / H.sum(axis=0)  # TODO: test other statistics ?
-        # vol = np.sqrt(H_track.sum(axis=0))  # TODO: test other statistics ?
+        vol = np.sqrt(H_track.sum(axis=0))
         volumes.append(vol)
-    return volumes
+    return np.array(volumes).T
 
 
 def positions(H: np.ndarray, split_idx, hop_size):
@@ -29,7 +24,13 @@ def positions(H: np.ndarray, split_idx, hop_size):
             col = H[left:right, i] ** 2  # TODO: not rigoureux
             pos[i] = scipy.ndimage.center_of_mass(col)[0] * hop_size
         ret.append(pos)
-    return ret
+    return np.array(ret).T
+
+
+def rel_error(est: np.ndarray, real: np.ndarray):
+    mask = ~np.isnan(est) & ~np.isnan(real)
+    mre = np.mean(np.abs(est[mask] - real[mask]) / np.abs(real[mask]))
+    return mre
 
 
 def plot_vol_pos(
@@ -41,10 +42,10 @@ def plot_vol_pos(
 ):
     colors = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
 
-    fig, axes = plt.subplots(2, 1, figsize=(5 * len(volumes), 9))
+    fig, axes = plt.subplots(2, 1, figsize=(15, 9))
 
-    def plot_pos(positions, real):
-        for i, ref_time in enumerate(positions):
+    def plot_pos(positions, real: bool):
+        for i, ref_time in enumerate(positions.T):
             mix_time = np.arange(len(ref_time)) * hop_size
             coords = np.vstack([mix_time, ref_time]).T
             for j, ((x0, y0), (x1, y1)) in enumerate(zip(coords[:-1], coords[1:])):
@@ -62,10 +63,9 @@ def plot_vol_pos(
     axes[0].set_title("track time")
     axes[0].set_xlabel("mix time (s)")
     axes[0].set_ylabel("ref time (s)")
-    # axes[0].set_aspect("equal")
 
-    def plot_vol(volumes, real):
-        for i, v in enumerate(volumes):
+    def plot_vol(volumes, real: bool):
+        for i, v in enumerate(volumes.T):
             mix_time = np.arange(len(v)) * hop_size
             axes[1].plot(
                 mix_time,
@@ -81,7 +81,7 @@ def plot_vol_pos(
     axes[1].legend()
     axes[1].set_title("track volume")
     axes[1].set_xlabel("mix time (s)")
-    axes[1].set_ylim(0,1)
+    axes[1].set_ylim(0, 1)
 
     plt.tight_layout()
     plt.show()
