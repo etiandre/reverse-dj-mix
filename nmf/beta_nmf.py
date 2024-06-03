@@ -216,10 +216,9 @@ class BetaNMF:
             )
 
     def loss(self):
-        losses = [beta_divergence(self.V, self.W @ self.H, self.beta)]
-        if self.lambda_variance > 0:
-            losses.append(
-                self.lambda_variance * np.mean(np.var(self.H.toarray(), axis=0))
-            )
-        # TODO: add smooth penalty
-        return losses
+        # if self.lambda_variance > 0:
+        #     losses.append(
+        #         self.lambda_variance * np.mean(np.var(self.H.toarray(), axis=0))
+        #     )
+        # TODO: add all penalties
+        return beta_divergence(self.V, self.W @ self.H, self.beta)

@@ -1,6 +1,6 @@
 import numpy as np
 import warnings
-
+import enum
 import scipy.sparse
 from beta_nmf import BetaNMF
 import scipy.ndimage
@@ -15,7 +15,7 @@ import functools
 logger = logging.getLogger(__name__)
 
 
-def transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
+def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     spec = librosa.stft(
         input,
         n_fft=win_len,
@@ -26,11 +26,8 @@ def transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     )
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
     melspec = mel_f.dot(abs(spec) ** 2)
-    colsum = np.sum(melspec, axis=0, keepdims=True)
-    colsum[colsum == 0] = 1e-30  # TODO this is a hack
-    melspec /= colsum  # normalize columns
 
-    return melspec, colsum
+    return melspec, spec
 
 
 class ActivationLearner:
@@ -60,41 +57,43 @@ class ActivationLearner:
         self.polyphony_penalty = polyphony_penalty
         self.win_size = win_size
         self.hop_size = hop_size
+        self.stft_win_func = stft_win_func
 
         # transform inputs
         with multiprocessing.Pool() as pool:
             f = functools.partial(
-                transform_melspec,
+                _transform_melspec,
                 fs=fs,
                 n_mels=n_mels,
                 stft_win_func=stft_win_func,
                 win_len=win_len,
                 hop_len=hop_len,
             )
-            out = list(
-                tqdm(
+            input_powspecs, input_specs = zip(
+                *tqdm(
                     pool.imap(f, inputs),
                     desc="Transforming inputs",
                     total=len(inputs),
                 )
             )
-            inputs_mat, colsum = zip(*out)
-        self.colsum = colsum
+
+        # save specs for reconstruction
+        self.input_specs = input_specs
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
-            np.cumsum([ref.shape[1] for ref in inputs_mat[:-1]], axis=0)
+            np.cumsum([ref.shape[1] for ref in input_powspecs[:-1]], axis=0)
         )
 
         # construct NMF matrices
-        V = inputs_mat[-1]
+        V = input_powspecs[-1]
 
         if self.learn_add:
-            Wa = np.random.rand(inputs_mat[0].shape[0], additional_dim)
-            W = np.concatenate(inputs_mat[:-1] + [Wa], axis=1)
+            Wa = np.random.rand(input_powspecs[0].shape[0], additional_dim)
+            W = np.concatenate(input_powspecs[:-1] + [Wa], axis=1)
             self.split_idx.append(self.split_idx[-1] + additional_dim)
         else:
-            W = np.concatenate(inputs_mat[:-1], axis=1)
+            W = np.concatenate(input_powspecs[:-1], axis=1)
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
@@ -142,59 +141,37 @@ class ActivationLearner:
         a = self.split_idx[i]
         b = self.split_idx[i + 1]
         if i < len(self.inputs) - 1:
-            ref_spec = self.transform(self.inputs[i])
-            Vi = (
-                self.nmf.V * (ref_spec @ self.nmf.H[a:b, :]) / (self.nmf.W @ self.nmf.H)
-            )
+            Vi = self.nmf.V * (self.input_specs @ self.H[a:b, :]) / (self.W @ self.H)
         else:  # no phase :(
-            Vi = (
-                self.nmf.V
-                * (self.nmf.W[:, a:b] @ self.nmf.H[a:b, :])
-                / (self.nmf.W @ self.nmf.H)
-            )
-            warnings.warn(f"Track {i} not in refs: i don't have phase info")
-        return self.inv_transform(Vi)
+            raise NotImplementedError("Cannot reconstruct without original material")
+            # warnings.warn(f"Track {i} not in refs: i don't have phase info")
+            # Vi = (
+            # self.nmf.V
+            # * (self.nmf.W[:, a:b] @ self.nmf.H[a:b, :])
+            # / (self.nmf.W @ self.nmf.H)
+            # )
 
-    def plot(self):
-        CMAP = "turbo"
-        SPECFUNC = lambda S, ax: ax.imshow(
-            librosa.power_to_db(S),
-            cmap=CMAP,
-            aspect="auto",
-            origin="lower",
-            interpolation="none",
+        audio = librosa.istft(
+            Vi,
+            n_fft=int(self.fs * self.win_size),
+            hop_length=int(self.fs * self.hop_size),
+            win_length=int(self.fs * self.win_size),
+            center=False,
+            window=self.stft_win_func,
         )
+        return audio
 
-        fig, axes = plt.subplots(2, 2, figsize=(15, 6))
+    @property
+    def H(self):
+        if isinstance(self.nmf.H, scipy.sparse.sparray):
+            return self.nmf.H.toarray()
+        else:
+            return self.nmf.H
 
-        # plot H
-        im = axes[0, 0].imshow(
-            self.nmf.H.toarray(), cmap=CMAP, aspect="auto", origin="lower"
-        )
-        axes[0, 0].set_title("H (activations)")
-        axes[0, 0].set_xlabel("mix frame")
-        axes[0, 0].set_ylabel("ref frame")
-        fig.colorbar(im, ax=axes[0, 0])
+    @property
+    def W(self):
+        return self.nmf.W
 
-        # plot W
-        im = SPECFUNC(self.nmf.W, axes[0, 1])
-        fig.colorbar(mappable=im, ax=axes[0, 1])
-        axes[0, 1].set_title("$W$ (reference tracks)")
-
-        # annotate track boundaries
-        for track, (a, b) in enumerate(zip(self.split_idx, self.split_idx[1:])):
-            axes[0, 0].axhline(a - 0.5, color="r", linestyle="--")
-            axes[0, 0].annotate(f"track {track}", (0, (a + b) / 2), color="red")
-            axes[0, 1].axvline(a - 0.5, color="r", linestyle="--")
-            axes[0, 1].annotate(f"track {track}", ((a + b) / 2, 1), color="red")
-
-        im = SPECFUNC(self.nmf.V, axes[1, 0])
-        axes[1, 0].set_title("$V$ (mix)")
-        fig.colorbar(mappable=im, ax=axes[1, 0])
-
-        im = SPECFUNC(self.nmf.W @ self.nmf.H, axes[1, 1])
-        axes[1, 1].set_title("$\\hat{V} = WH$ (estimated mix)")
-        fig.colorbar(mappable=im, ax=axes[1, 1])
-
-        plt.tight_layout()
-        plt.show()
+    @property
+    def V(self):
+        return self.nmf.V

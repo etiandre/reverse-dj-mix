@@ -42,48 +42,45 @@ class Mix:
                 elif command == "fadeout":
                     tracks[track_id]["fadeout"] = (t0, t1)
                 elif command == "cutpoint":
-                    tracks[track_id - 1]["cutpoint"] = t0
+                    tracks[track_id]["cutpoint"] = t0
                     pass
                 else:
                     raise RuntimeError(command)
         return tracks
 
-    def get_track_volumes(self, hop_size: float, win_size: float):
+    @cached_property
+    def duration(self):
+        return self.tracks[-1]["stop"]
+
+    def get_track_volumes(self, times: np.ndarray):
         ret = []
-        mix_duration = self.tracks[-1]["stop"]
         for track in self.tracks:
-            volume = []
-            t = 0
-            while t < mix_duration - win_size:
+            volume = np.zeros_like(times)
+            for i, t in enumerate(times):
                 if t < track["fadein"][0]:
-                    volume.append(0)
+                    g = 0
                 elif t < track["fadein"][1]:
-                    volume.append(
-                        1
-                        + (t - track["fadein"][1])
-                        / (track["fadein"][1] - track["fadein"][0])
+                    g = 1 + (t - track["fadein"][1]) / (
+                        track["fadein"][1] - track["fadein"][0]
                     )
+
                 elif t < track["fadeout"][0]:
-                    volume.append(1)
+                    g = 1
                 elif t < track["fadeout"][1]:
-                    volume.append(
-                        -(t - track["fadeout"][1])
-                        / (track["fadeout"][1] - track["fadeout"][0])
+                    g = -(t - track["fadeout"][1]) / (
+                        track["fadeout"][1] - track["fadeout"][0]
                     )
                 else:
-                    volume.append(0)
-                t += hop_size
+                    g = 0
+                volume[i] = g
             ret.append(volume)
         return np.stack(ret).T
 
-    def get_track_positions(self, hop_size: float, win_size: float):
+    def get_track_positions(self, times: np.ndarray):
         ret = []
-        mix_duration = self.tracks[-1]["stop"]
         for track in self.tracks:
-            Nframes = int((mix_duration - win_size)/hop_size)
-            position = np.zeros(Nframes)
-            for i in range(Nframes):
-                t = hop_size * i
+            position = np.zeros_like(times)
+            for i, t in enumerate(times):
                 if t < track["start"]:
                     tau = np.nan
                 elif t < track["stop"]:
@@ -124,8 +121,8 @@ class RefSong:
 class UnmixDB:
     def __init__(self, base_path: Path | str):
         base_path = Path(base_path)
-        self.mixes = {}
-        self.refsongs = {}
+        self.mixes: dict[str, Mix] = {}
+        self.refsongs: dict[str, RefSong] = {}
         for subset in base_path.glob("*"):
             for audio_path in subset.glob("mixes/*.mp3"):
                 if m := re.match(r"\w+-(\w+)-(\w+)-(\d+)", audio_path.stem):
