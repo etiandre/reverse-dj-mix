@@ -65,11 +65,13 @@ def plot_timeremap(
                     (y0, y1),
                     "--" if real else "-",
                     color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
+                    label=f"track {i}" if not real else None,
                 )
 
     plot_pos(positions, False)
     if ground_truth is not None:
         plot_pos(ground_truth, True)
+    ax.legend()
     ax.set_xlabel("mix time (s)")
     ax.set_ylabel("ref time (s)")
 
@@ -90,7 +92,7 @@ def plot_volume(
                 v,
                 "--" if real else "-",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
-                label=f"track {i}" if real else None,
+                label=f"track {i}" if not real else None,
             )
 
     plot_vol(volumes, False)
@@ -121,10 +123,12 @@ def plot_H(H: np.ndarray, split_idx, ax=None):
 def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
     ax = ax or plt.gca()
     im = _pow_specshow(W, ax)
+    # annotate track boundaries if given
     if split_idx is not None:
+        COLOR = "white"
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-            ax.axvline(a - 0.5, color="r", linestyle="--")
-            ax.annotate(f"track {track}", ((a + b) / 2, 1), color="red")
+            ax.axvline(a - 0.5, color=COLOR, linestyle="--")
+            ax.annotate(f"track {track}", ((a + b) / 2, 1), color=COLOR)
 
     return im
 

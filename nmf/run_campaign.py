@@ -11,8 +11,10 @@ from unmixdb import UnmixDB
 import itertools
 import scipy.sparse
 import multiprocessing
-import activation_learner, carve, plot, param_estimator
+import datetime
 from tensorboardX import SummaryWriter
+
+import activation_learner, carve, plot, param_estimator
 
 
 plt.style.use("dark_background")
@@ -20,7 +22,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("activation_learner").setLevel(logging.DEBUG)
 
 
-def load_audios_parallel(paths: list[Path], fs: int):
+def load_audios(paths: list[Path], fs: int):
     # def load_audio(path):
     #     return librosa.load(path, sr=fs)[0]
 
@@ -40,33 +42,34 @@ CARVE_THRESHOLD = 1e-2
 BETA = 0
 NMELS = 256
 # stop conditions
-DLOSS_MIN = 1e-8
+DLOSS_MIN = 1e-6
 LOSS_MIN = -np.inf
 ITER_MAX = 5000
 
 OUTDIR = "output"
 
-unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
+# unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
+unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
 
 # ==============
-
-writer = SummaryWriter()
-writer.add_hparams(
-    {
-        "FS": FS,
-        "ROUNDS": len(HOP_SIZES),
-        "HOP_SIZES": repr(HOP_SIZES),
-        "OVERLAP_FACTOR": OVERLAP_FACTOR,
-        "CARVE_THRESHOLD": CARVE_THRESHOLD,
-        "DLOSS_MIN": DLOSS_MIN,
-        "LOSS_MIN": LOSS_MIN,
-        "ITER_MAX": ITER_MAX,
-        "BETA": BETA,
-        "NMELS": NMELS,
-    },
-    {},
-)
+date = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
 for mix_name, mix in unmixdb.mixes.items():
+    writer = SummaryWriter(f"runs/{mix_name}_{date}")
+    writer.add_hparams(
+        {
+            "FS": FS,
+            "ROUNDS": len(HOP_SIZES),
+            "HOP_SIZES": repr(HOP_SIZES),
+            "OVERLAP_FACTOR": OVERLAP_FACTOR,
+            "CARVE_THRESHOLD": CARVE_THRESHOLD,
+            "DLOSS_MIN": DLOSS_MIN,
+            "LOSS_MIN": LOSS_MIN,
+            "ITER_MAX": ITER_MAX,
+            "BETA": BETA,
+            "NMELS": NMELS,
+        },
+        {},
+    )
     logging.info(f"Starting work on {mix_name}")
     input_paths = [
         unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
@@ -74,11 +77,12 @@ for mix_name, mix in unmixdb.mixes.items():
     pprint(input_paths)
 
     # load audios
-    inputs = load_audios_parallel(input_paths, FS)
+    inputs = load_audios(input_paths, FS)
 
     # multi pass NMF
     previous_H = None
     previous_split_idx = None
+    global_epoch = 0
     for hop_size in HOP_SIZES:
         win_size = OVERLAP_FACTOR * hop_size
         logging.info(f"Starting round with {hop_size=}s, {win_size=}s")
@@ -108,7 +112,7 @@ for mix_name, mix in unmixdb.mixes.items():
             dloss = abs(last_loss - loss)
             last_loss = loss
 
-            writer.add_scalar("loss", loss)
+            writer.add_scalar("loss", loss, global_epoch + i)
             # TODO: add H to plot
             if i % 100 == 0:
                 logging.info(f"NMF iteration={i} loss={loss:.2e} dloss={dloss:.2e}")
@@ -117,10 +121,11 @@ for mix_name, mix in unmixdb.mixes.items():
                 break
 
         # plot NMF
-        writer.add_figure("nmf", plot.plot_nmf(learner))
+        writer.add_figure("nmf", plot.plot_nmf(learner), global_epoch + i)
 
         previous_H = learner.H
         previous_split_idx = learner.split_idx
+        global_epoch += i
 
     # for i in range(len(mix.tracks)):
     #     logging.info(f"Reconstructing track {i}")
@@ -132,29 +137,34 @@ for mix_name, mix in unmixdb.mixes.items():
     # TODO: audio quality measure
 
     # parameter estimation
-    T = np.arange(0, int(mix.duration / hop_size * FS), int(hop_size * FS)) / FS
+    # T = np.arange(0, int((mix.duration - win_size) / hop_size * FS), int(hop_size * FS)) / FS
+    T = np.arange(0, learner.input_specs[-1].shape[1]) * hop_size / FS
     real_volumes = mix.get_track_volumes(T)
     real_timeremap = mix.get_track_positions(T)
 
     for method in param_estimator.VolumeEstimator:
         logging.info(f"Estimating volume with method {method}")
         est_volumes = method.value(learner)
-        rel_error = param_estimator.rel_error(est_volumes, real_volumes)
-        writer.add_scalar(f"volume_error/{mix_name}-{method}", rel_error)
+        error = param_estimator.error(est_volumes, real_volumes)
+
+        writer.add_scalar(f"volume_error/{method}", error)
+        logging.info(f"{error=:.2e}")
 
         fig = plt.figure()
         plot.plot_volume(est_volumes, learner.hop_size, real_volumes)
-        writer.add_figure(f"volume/{mix_name}-{method}", fig)
+        writer.add_figure(f"volume/{method}", fig)
 
     for method in param_estimator.TimeRemappingEstimator:
         logging.info(f"Estimating timeremap with method {method}")
         est_timeremap = method.value(learner)
-        rel_error = param_estimator.rel_error(est_timeremap, real_timeremap)
-        writer.add_scalar(f"volume_error/{mix_name}-{method}", rel_error)
+        error = param_estimator.error(est_timeremap, real_timeremap)
+
+        writer.add_scalar(f"volume_error/{method}", error)
+        logging.info(f"{error=:.2e}")
 
         fig = plt.figure()
         plot.plot_timeremap(est_timeremap, hop_size, real_timeremap)
-        writer.add_figure(f"timeremap/{mix_name}-{method}", fig)
+        writer.add_figure(f"timeremap/{method}", fig)
 
         # TODO: save stuff
 

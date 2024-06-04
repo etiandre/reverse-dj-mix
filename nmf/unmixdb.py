@@ -123,6 +123,7 @@ class UnmixDB:
         base_path = Path(base_path)
         self.mixes: dict[str, Mix] = {}
         self.refsongs: dict[str, RefSong] = {}
+        assert base_path.exists()
         for subset in base_path.glob("*"):
             for audio_path in subset.glob("mixes/*.mp3"):
                 if m := re.match(r"\w+-(\w+)-(\w+)-(\d+)", audio_path.stem):

@@ -12,7 +12,7 @@ fenetre beat-synchrone approximatives
 tester spectre tonnetz
 dérivée du spectro ? peuetre pitch (ou au moins freqshift invariant ?)
 
-NMF source filtre: maxime bouvier
+NMF source **filtre**: maxime bouvier
 
 mettre des variantes des reftracks pour être plus robuste aux effets supplémentaires
 

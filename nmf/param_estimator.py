@@ -18,6 +18,12 @@ def rel_error(est: np.ndarray, real: np.ndarray):
     return mre
 
 
+def error(est: np.ndarray, real: np.ndarray):
+    mask = ~np.isnan(est) & ~np.isnan(real)
+    mre = np.mean(np.abs(est[mask] - real[mask]))
+    return mre
+
+
 def _estimate(model: ActivationLearner, fn: Callable):
     ret = []
     for left, right in zip(model.split_idx, model.split_idx[1:]):
