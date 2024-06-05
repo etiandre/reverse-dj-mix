@@ -47,9 +47,9 @@ def plot_losses(losses: np.ndarray, ax=None):
     ax.legend()
 
 
-def plot_timeremap(
-    positions: np.ndarray,
-    hop_size: float,
+def plot_warp(
+    tau: np.ndarray,
+    warps: np.ndarray,
     ground_truth: Optional[np.ndarray] = None,
     ax=None,
 ):
@@ -57,49 +57,45 @@ def plot_timeremap(
 
     def plot_pos(positions, real: bool):
         for i, ref_time in enumerate(positions.T):
-            mix_time = np.arange(len(ref_time)) * hop_size
-            coords = np.vstack([mix_time, ref_time]).T
+            coords = np.vstack([tau, ref_time]).T
             for (x0, y0), (x1, y1) in zip(coords[:-1], coords[1:]):
                 ax.plot(
                     (x0, x1),
                     (y0, y1),
                     "--" if real else "-",
                     color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
-                    label=f"track {i}" if not real else None,
                 )
 
-    plot_pos(positions, False)
+    plot_pos(warps, False)
     if ground_truth is not None:
         plot_pos(ground_truth, True)
-    ax.legend()
     ax.set_xlabel("mix time (s)")
     ax.set_ylabel("ref time (s)")
 
 
-def plot_volume(
-    volumes: np.ndarray,
-    hop_size: float,
+def plot_gain(
+    tau: np.ndarray,
+    gains: np.ndarray,
     ground_truth: Optional[np.ndarray] = None,
     ax=None,
 ):
     ax = ax or plt.gca()
 
-    def plot_vol(volumes, real: bool):
-        for i, v in enumerate(volumes.T):
-            mix_time = np.arange(len(v)) * hop_size
+    def plot_g(gains, real: bool):
+        for i, v in enumerate(gains.T):
             ax.plot(
-                mix_time,
+                tau,
                 v,
                 "--" if real else "-",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
                 label=f"track {i}" if not real else None,
             )
 
-    plot_vol(volumes, False)
+    plot_g(gains, False)
     if ground_truth is not None:
-        plot_vol(ground_truth, True)
+        plot_g(ground_truth, True)
     ax.legend()
-    ax.set_title("track volume")
+    ax.set_title("track gain")
     ax.set_xlabel("mix time (s)")
     # ax.set_ylim(0, 1)
 

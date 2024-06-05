@@ -12,3 +12,4 @@ datasets
 *.reapeaks
 *.bkp
 runs/
+results/

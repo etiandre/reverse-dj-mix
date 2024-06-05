@@ -52,10 +52,10 @@ class Mix:
     def duration(self):
         return self.tracks[-1]["stop"]
 
-    def get_track_volumes(self, times: np.ndarray):
+    def get_track_gain(self, times: np.ndarray):
         ret = []
         for track in self.tracks:
-            volume = np.zeros_like(times)
+            gain = np.zeros_like(times)
             for i, t in enumerate(times):
                 if t < track["fadein"][0]:
                     g = 0
@@ -72,11 +72,11 @@ class Mix:
                     )
                 else:
                     g = 0
-                volume[i] = g
-            ret.append(volume)
+                gain[i] = g
+            ret.append(gain)
         return np.stack(ret).T
 
-    def get_track_positions(self, times: np.ndarray):
+    def get_track_warp(self, times: np.ndarray):
         ret = []
         for track in self.tracks:
             position = np.zeros_like(times)

@@ -7,19 +7,35 @@ from pprint import pprint
 import scipy.ndimage
 import scipy.signal
 import logging
-from unmixdb import UnmixDB
 import itertools
 import scipy.sparse
-import multiprocessing
 import datetime
-from tensorboardX import SummaryWriter
+import os
+import pickle
+import time
 
+from unmixdb import UnmixDB
+from abcdj import ABCDJ
 import activation_learner, carve, plot, param_estimator
 
 
-plt.style.use("dark_background")
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("activation_learner").setLevel(logging.DEBUG)
+# plt.style.use("dark_background")
+date = datetime.datetime.now().isoformat()
+os.makedirs(f"results/{date}")
+
+logFormatter = logging.Formatter(
+    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
+)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+
+fileHandler = logging.FileHandler(f"results/{date}/output.log")
+fileHandler.setFormatter(logFormatter)
+logger.addHandler(fileHandler)
+
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+logger.addHandler(consoleHandler)
 
 
 def load_audios(paths: list[Path], fs: int):
@@ -36,27 +52,31 @@ def load_audios(paths: list[Path], fs: int):
 # =============
 
 FS = 22050
-HOP_SIZES = [5, 1]
+HOP_SIZES = [5.0, 1.0]
 OVERLAP_FACTOR = 4
 CARVE_THRESHOLD = 1e-2
 BETA = 0
 NMELS = 256
+VOL_FILTER_SIZE = 0.1
 # stop conditions
-DLOSS_MIN = 1e-6
+DLOSS_MIN = 1e-8
 LOSS_MIN = -np.inf
-ITER_MAX = 5000
+ITER_MAX = 4000
 
 OUTDIR = "output"
 
-# unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
-unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
+unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
+# unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
+abcdj = ABCDJ(
+    "/data2/anasynth_nonbp/schwarz/abc-dj/src-git/unmixing/results-unmixdb-full"
+)
 
 # ==============
-date = datetime.datetime.now().strftime("%b%d_%H-%M-%S")
+results = {}
 for mix_name, mix in unmixdb.mixes.items():
-    writer = SummaryWriter(f"runs/{mix_name}_{date}")
-    writer.add_hparams(
-        {
+    try:
+        os.makedirs(f"results/{date}/{mix_name}")
+        results["hyperparams"] = {
             "FS": FS,
             "ROUNDS": len(HOP_SIZES),
             "HOP_SIZES": repr(HOP_SIZES),
@@ -67,105 +87,165 @@ for mix_name, mix in unmixdb.mixes.items():
             "ITER_MAX": ITER_MAX,
             "BETA": BETA,
             "NMELS": NMELS,
-        },
-        {},
-    )
-    logging.info(f"Starting work on {mix_name}")
-    input_paths = [
-        unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
-    ] + [mix.audio_path]
-    pprint(input_paths)
+            "VOL_FILTER_SIZE": VOL_FILTER_SIZE,
+        }
+        logger.info(f"Starting work on {mix_name}")
+        input_paths = [
+            unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
+        ] + [mix.audio_path]
+        pprint(input_paths)
 
-    # load audios
-    inputs = load_audios(input_paths, FS)
+        tick_init = time.time()
 
-    # multi pass NMF
-    previous_H = None
-    previous_split_idx = None
-    global_epoch = 0
-    for hop_size in HOP_SIZES:
-        win_size = OVERLAP_FACTOR * hop_size
-        logging.info(f"Starting round with {hop_size=}s, {win_size=}s")
+        # load audios
+        inputs = load_audios(input_paths, FS)
 
-        learner = activation_learner.ActivationLearner(
-            inputs,
-            fs=FS,
-            n_mels=NMELS,
-            beta=BETA,
-            win_size=win_size,
-            hop_size=hop_size,
-        )
+        tick_load = time.time()
 
-        # carve and resize H from previous round
-        if previous_H is not None:
-            H_carved = carve.carve(previous_H, previous_split_idx, CARVE_THRESHOLD)
-            H_carved_resized = carve.resize_cv_area(H_carved, learner.H.shape)
-            plot.plot_carve_resize(H_carved, H_carved_resized)
-            learner.nmf.H = scipy.sparse.bsr_array(H_carved_resized)
+        # multi pass NMF
+        previous_H = None
+        previous_split_idx = None
+        for hop_size in HOP_SIZES:
+            win_size = OVERLAP_FACTOR * hop_size
+            logger.info(f"Starting round with {hop_size=}s, {win_size=}s")
 
-        # iterate
-        logging.info("Running NMF")
-        last_loss = np.inf
-        for i in itertools.count():
-            # TODO: get all components of loss
-            loss = learner.iterate()
-            dloss = abs(last_loss - loss)
-            last_loss = loss
+            learner = activation_learner.ActivationLearner(
+                inputs,
+                fs=FS,
+                n_mels=NMELS,
+                beta=BETA,
+                win_size=win_size,
+                hop_size=hop_size,
+            )
 
-            writer.add_scalar("loss", loss, global_epoch + i)
-            # TODO: add H to plot
-            if i % 100 == 0:
-                logging.info(f"NMF iteration={i} loss={loss:.2e} dloss={dloss:.2e}")
-            if dloss < DLOSS_MIN or np.sum(loss) < LOSS_MIN or i > ITER_MAX:
-                logging.info(f"Stopped at NMF iteration={i} loss={loss} dloss={dloss}")
-                break
+            # carve and resize H from previous round
+            if previous_H is not None:
+                H_carved = carve.carve(previous_H, previous_split_idx, CARVE_THRESHOLD)
+                H_carved_resized = carve.resize_cv_area(H_carved, learner.H.shape)
+                plot.plot_carve_resize(H_carved, H_carved_resized)
+                learner.nmf.H = scipy.sparse.bsr_array(H_carved_resized)
+
+            # iterate
+            logger.info("Running NMF")
+            last_loss = np.inf
+            for i in itertools.count():
+                # TODO: get all components of loss
+                loss = learner.iterate()
+                dloss = abs(last_loss - loss)
+                last_loss = loss
+
+                # TODO: add H to plot
+                if i % 100 == 0:
+                    logger.info(f"NMF iteration={i} loss={loss:.2e} dloss={dloss:.2e}")
+                if dloss < DLOSS_MIN or np.sum(loss) < LOSS_MIN or i > ITER_MAX:
+                    logger.info(
+                        f"Stopped at NMF iteration={i} loss={loss} dloss={dloss}"
+                    )
+                    break
+
+            previous_H = learner.H
+            previous_split_idx = learner.split_idx
+
+        tick_nmf = time.time()
 
         # plot NMF
-        writer.add_figure("nmf", plot.plot_nmf(learner), global_epoch + i)
+        plot.plot_nmf(learner).savefig(f"results/{date}/{mix_name}/nmf.png")
+        results["loss"] = loss
 
-        previous_H = learner.H
-        previous_split_idx = learner.split_idx
-        global_epoch += i
+        # for i in range(len(mix.tracks)):
+        #     logger.info(f"Reconstructing track {i}")
+        #     reconstructed_audio = learner.reconstruct(i)
+        #     soundfile.write(
+        #         f"{mix_name}-reconstructed-{i:03d}.ogg", reconstructed_audio, samplerate=FS
+        #     )
 
-    # for i in range(len(mix.tracks)):
-    #     logging.info(f"Reconstructing track {i}")
-    #     reconstructed_audio = learner.reconstruct(i)
-    #     soundfile.write(
-    #         f"{mix_name}-reconstructed-{i:03d}.ogg", reconstructed_audio, samplerate=FS
-    #     )
+        # TODO: audio quality measure
 
-    # TODO: audio quality measure
+        # get ground truth
+        tau = np.arange(0, learner.V.shape[1]) * hop_size
+        real_gain = mix.get_track_gain(tau)
+        real_warp = mix.get_track_warp(tau)
+        results["real_gain"] = real_gain
+        results["real_warp"] = real_warp
 
-    # parameter estimation
-    # T = np.arange(0, int((mix.duration - win_size) / hop_size * FS), int(hop_size * FS)) / FS
-    T = np.arange(0, learner.input_specs[-1].shape[1]) * hop_size / FS
-    real_volumes = mix.get_track_volumes(T)
-    real_timeremap = mix.get_track_positions(T)
+        # estimate gain
+        results["est_gain"] = {}
+        for estimator in param_estimator.GainEstimator:
+            logger.info(f"Estimating gain with method {estimator}")
+            est_gain = estimator.value(learner)
 
-    for method in param_estimator.VolumeEstimator:
-        logging.info(f"Estimating volume with method {method}")
-        est_volumes = method.value(learner)
-        error = param_estimator.error(est_volumes, real_volumes)
+            fig = plt.figure()
+            plot.plot_gain(tau, est_gain, real_gain)
+            fig.savefig(f"results/{date}/{mix_name}/{estimator}.png")
+            results["est_gain"][str(estimator)] = est_gain
 
-        writer.add_scalar(f"volume_error/{method}", error)
-        logging.info(f"{error=:.2e}")
+        # estimate warp
+        results["est_warp"] = {}
+        for estimator in param_estimator.WarpEstimator:
+            logger.info(f"Estimating warp with method {estimator}")
+            est_warp = estimator.value(learner)
 
-        fig = plt.figure()
-        plot.plot_volume(est_volumes, learner.hop_size, real_volumes)
-        writer.add_figure(f"volume/{method}", fig)
+            fig = plt.figure()
+            plot.plot_warp(tau, est_warp, real_warp)
+            fig.savefig(f"results/{date}/{mix_name}/{estimator}.png")
 
-    for method in param_estimator.TimeRemappingEstimator:
-        logging.info(f"Estimating timeremap with method {method}")
-        est_timeremap = method.value(learner)
-        error = param_estimator.error(est_timeremap, real_timeremap)
+            results["est_warp"][str(estimator)] = est_warp
 
-        writer.add_scalar(f"volume_error/{method}", error)
-        logging.info(f"{error=:.2e}")
+        # estimate high params using all estimator combos
+        results["highparams"] = [{}, {}, {}]
+        for i in range(3):
+            ret = {}
+            ret["real_track_start"] = mix.tracks[i]["start"]
+            ret["real_fadein_start"] = mix.tracks[i]["fadein"][0]
+            ret["real_fadein_stop"] = mix.tracks[i]["fadein"][1]
+            ret["real_fadeout_start"] = mix.tracks[i]["fadeout"][0]
+            ret["real_fadeout_stop"] = mix.tracks[i]["fadeout"][1]
+            for (g_estor, est_gain), (
+                w_estor,
+                est_warp,
+            ) in itertools.product(
+                results["est_gain"].items(), results["est_warp"].items()
+            ):
+                logger.info(
+                    f"Estimating highparams for track {i} with {g_estor} and {w_estor}"
+                )
+                (
+                    est_track_start,
+                    est_fadein_start,
+                    est_fadein_stop,
+                    est_fadein_slope,
+                    est_fadeout_start,
+                    est_fadeout_stop,
+                    est_fadeout_slope,
+                    fig,
+                ) = param_estimator.estimate_highparams(
+                    tau, est_gain[:, i], est_warp[:, i], plot=True
+                )
+                fig.savefig(
+                    f"results/{date}/{mix_name}/highparams-{i}-{g_estor}-{w_estor}.png",
+                )
+                ret[str(g_estor)] = {}
+                ret[str(g_estor)][str(w_estor)] = {}
+                ret[str(g_estor)][str(w_estor)]["est_track_start"] = est_track_start
+                ret[str(g_estor)][str(w_estor)]["est_fadein_start"] = est_fadein_start
+                ret[str(g_estor)][str(w_estor)]["est_fadein_stop"] = est_fadein_stop
+                ret[str(g_estor)][str(w_estor)]["est_fadein_slope"] = est_fadein_slope
+                ret[str(g_estor)][str(w_estor)]["est_fadeout_start"] = est_fadeout_start
+                ret[str(g_estor)][str(w_estor)]["est_fadeout_stop"] = est_fadeout_stop
+                ret[str(g_estor)][str(w_estor)]["est_fadeout_slope"] = est_fadeout_slope
+                results["highparams"][i] = ret
 
-        fig = plt.figure()
-        plot.plot_timeremap(est_timeremap, hop_size, real_timeremap)
-        writer.add_figure(f"timeremap/{method}", fig)
+        tick_estimation = time.time()
 
-        # TODO: save stuff
+        # log times
+        results["times"] = {}
+        results["times"]["load"] = tick_load - tick_init
+        results["times"]["nmf"] = tick_nmf - tick_load
+        results["times"]["estimation"] = tick_estimation - tick_nmf
 
-    break
+        with open(f"results/{date}/{mix_name}/results.pickle", "wb") as f:
+            pickle.dump(results, f)
+
+        plt.close("all")
+    except Exception:
+        logger.exception(f"Error when processing {mix_name}, aborting")
