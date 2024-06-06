@@ -71,9 +71,17 @@ abcdj = ABCDJ(
     "/data2/anasynth_nonbp/schwarz/abc-dj/src-git/unmixing/results-unmixdb-full"
 )
 
+# filter by no stretch no fx :) :) :)
+mixes = dict(
+    filter(
+        lambda i: i[1].timestretch == "none" and i[1].fx == "none",
+        unmixdb.mixes.items(),
+    )
+)
+logger.info(f"Will process {len(mixes)} mixes")
 # ==============
 results = {}
-for mix_name, mix in unmixdb.mixes.items():
+for mix_name, mix in mixes.items():
     try:
         os.makedirs(f"results/{date}/{mix_name}")
         results["hyperparams"] = {
@@ -152,12 +160,17 @@ for mix_name, mix in unmixdb.mixes.items():
         plot.plot_nmf(learner).savefig(f"results/{date}/{mix_name}/nmf.png")
         results["loss"] = loss
 
-        # for i in range(len(mix.tracks)):
-        #     logger.info(f"Reconstructing track {i}")
-        #     reconstructed_audio = learner.reconstruct(i)
-        #     soundfile.write(
-        #         f"{mix_name}-reconstructed-{i:03d}.ogg", reconstructed_audio, samplerate=FS
-        #     )
+        for i in range(3):
+            logger.info(f"Reconstructing track {i}")
+            soundfile.write(
+                f"{mix_name}-reconstructed-{i:03d}.ogg",
+                learner.reconstruct_track(i),
+                samplerate=FS,
+            )
+        logger.info(f"Reconstructing mix")
+        soundfile.write(
+            f"{mix_name}-reconstructed.ogg", learner.reconstruct_mix(), samplerate=FS
+        )
 
         # TODO: audio quality measure
 
