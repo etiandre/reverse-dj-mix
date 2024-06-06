@@ -6,7 +6,7 @@
   date: datetime.today(),
   abstract: [],
   preface: [],
-  // bibliography: bibliography("refs.bib"),
+  bibliography: bibliography("../../zotero.bib"),
   figure-index: (enabled: true),
   table-index: (enabled: true),
   listing-index: (enabled: true)
@@ -22,18 +22,19 @@
 <formulation-du-problème>
 == Objectif
 <objectif>
-#strong[Sachant]
+*Sachant*
 
 - Un enregistrement d’un mix DJ (#emph[mix])
-- Les enregistrements des morceaux composant le mix (#emph[reference
-  tracks])
+- Les enregistrements des morceaux composant le mix (#emph[reference tracks])
 
-#strong[Estimer]
+*Estimer*
 
 - Les transformations temporelles (alignement, boucles, sauts)
 - Les transformations de timbre (pitch shift, filtres, …)
 - Les éléments supplémentaires (voix, foule, …)
 - Leur évolution au cours du temps
+
+*Définitions*
 
 - matrices de bases $bold(X)_((i))$: spectre de puissance des morceaux de
   référence
@@ -113,14 +114,14 @@ $ X (omega, t) eq.def abs(integral_RR x(u+t) w(u) e^(-j omega u) d u)^2 $
 Similarly, we define $Y$, the power-STFT of $y$, and show that it can be expressed in terms of $X$:
 
 $ Y (omega, tau) &eq.def abs(g(tau) integral_RR x(u+f(tau)) w(u) e^(-j omega u) d u)^2 \
-&= g(tau)² X(omega, f(tau)) $
+&= g(tau)^2 X(omega, f(tau)) $
 
 Now, our goal is to decompose $Y$ into a continuous linear combination of $X$, with fixed $omega$. In other words, find an integral transform of $X$ that yields $Y$. This involves determining a kernel $H$ that satisfies:
 $ Y(omega, tau) = integral_RR X(omega, t) H (t, tau) d t $ <integral_transform>
 
 The kernel $H(t, tau) eq.def g(tau)^2 delta(t-f(tau))$ (where $delta(0) = 1$ and $0$ elsewhere) is a particular solution to @integral_transform:
-$ Y(omega, tau) &= integral_RR X(omega, t) g(tau)² delta(t-f(tau)) d t \
-&= g(tau)² X(omega, f(tau))
+$ Y(omega, tau) &= integral_RR X(omega, t) g(tau)^2 delta(t-f(tau)) d t \
+&= g(tau)^2 X(omega, f(tau))
 $
 == Discrete formulation
 
@@ -138,13 +139,13 @@ We then define the signal $y$ to be the time-remapped and gain-affected transfor
 Similarly, we define $bold(Y) = (bold(Y)_(m tau))$ to be the matrix containing the power spectrogram of $y$ ($M$ frequency bins $times K$ time steps):
 
 $ bold(Y)_(m tau) &= abs(g[tau] sum_(n=0)^(M-1) x[n+f[tau]] w[n] e^(-j 2 pi n  m/ M))^2 \
-&= g[tau]² bold(X)_(m,f[tau])
-$
+&= g[tau]^2 bold(X)_(m,f[tau])
+$ <xy-relation>
 
 Then we can find a matrix $bold(H) = (bold(H)_(t tau))$ (of dimensions $T$ time steps $times K$ time steps) that satisfies:
 $ bold(Y) &= bold(X) bold(H) <=> bold(Y)_(m tau) = sum_(t=0)^(T-1) bold(X)_(m t) bold(H)_(t tau) $ <matmul>
 
-The _ideal kernel_ $bold(H)_(t tau) eq.def g[tau]² delta_(t,f[tau])$ <ideal-kernel> is a particular solution to @matmul and can be seen as the discretized version of the ideal kernel from the previous section.
+The _ideal kernel_ $bold(H)_(t tau) eq.def g[tau]^2 delta_(t,f[tau])$ <ideal-kernel> is a particular solution to @matmul and can be seen as the discretized version of the ideal kernel from the previous section.
 
 == Case of the mel-spectrogram
 Let $bold(M)$ be a matrix of mel filter bank coefficients : $bold(X)^"mel" = bold(M)bold(X)$ and $bold(Y)^"mel" = bold(M)bold(Y)$. Then:
@@ -173,17 +174,23 @@ In practice, the $bold(H)$ matrix is estimated using NMF, which offers no guaran
 
 We will now study the robustness of our estimators to other sources of indetermination.
 
-== Case of column-normalized spectrograms
+== Case of column-normalized spectrogram
+To improve the numeric stability of NMF and prevent explosion, the columns of X are usually normalized to sum to 1:
+$bold(X)^"norm"_(m t) eq.def bold(X)_(m t) / bold(k)_t$ with $bold(k)_t = sum_i bold(X)_(i t)$
 
-To improve the numeric stability of NMF, the columns of the spectrograms are usually normalized to sum to 1:
-$bold(X)^"norm"_(m t) = bold(X)_(m t) / (sum_i bold(X)_(i t))$ and $bold(Y)^"norm"_(m tau) = bold(Y)_(m tau) / (sum_i bold(Y)_(i tau))$.
+Using @xy-relation:
+$
+bold(Y)_(m tau) =  bold(k)_t g[tau]^2 bold(X)^"norm"_(m, f[tau])
+$
+
+We can then deduce the ideal normalized kernel $bold(H)^"norm"$ as a solution to @matmul:
 
 $
-bold(Y)^"norm"_(m t) &= (g[tau]² bold(X)_(m,f[tau])) / (sum_i g[tau]² bold(X)_(i,f[tau])) \
-&= bold(X)^"norm"_(m, f[tau])
+bold(H)^"norm"_(t tau) &eq.def bold(k)_t g[tau]^2 delta_(t,f[tau]) \
+&= bold(k)_t bold(H)_(t tau)
 $
 
-We clearly see that this would remove any effect of $g$ in $bold(H)$ and would hinder us from estimating it.
+
 
 == Similar sounds in the source signal
 Given the nature of musical signals, two columns of $bold(X)$ could be almost identical, for example in the presence of a loop or of a particularly long note.

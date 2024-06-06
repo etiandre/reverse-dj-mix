@@ -95,6 +95,10 @@ class ActivationLearner:
         else:
             W = np.concatenate(input_powspecs[:-1], axis=1)
 
+        # normalize W
+        self.colsum = np.sum(W, axis=0, keepdims=True)
+        W = W / self.colsum
+
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
         H = scipy.sparse.bsr_array(H)
@@ -137,7 +141,7 @@ class ActivationLearner:
 
         return loss
 
-    def reconstruct(self, i: int):
+    def reconstruct_track(self, i: int):
         a = self.split_idx[i]
         b = self.split_idx[i + 1]
         if i < len(self.inputs) - 1:
@@ -161,12 +165,24 @@ class ActivationLearner:
         )
         return audio
 
+    def reconstruct_mix(self):
+        Vhat = self.W @ self.H
+        audio = librosa.istft(
+            Vhat,
+            n_fft=int(self.fs * self.win_size),
+            hop_length=int(self.fs * self.hop_size),
+            win_length=int(self.fs * self.win_size),
+            center=False,
+            window=self.stft_win_func,
+        )
+        return audio
+
     @property
     def H(self):
         if isinstance(self.nmf.H, scipy.sparse.sparray):
-            return self.nmf.H.toarray()
+            return self.nmf.H.toarray() / self.colsum
         else:
-            return self.nmf.H
+            return self.nmf.H / self.colsum
 
     @property
     def W(self):
