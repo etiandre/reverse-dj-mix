@@ -72,8 +72,9 @@ abcdj = ABCDJ(
 )
 
 # ==============
-results = {}
+logging.info(f"{len(unmixdb.mixes)=}")
 for mix_name, mix in unmixdb.mixes.items():
+    results = {}
     try:
         os.makedirs(f"results/{date}/{mix_name}")
         results["hyperparams"] = {
@@ -242,10 +243,13 @@ for mix_name, mix in unmixdb.mixes.items():
         results["times"]["load"] = tick_load - tick_init
         results["times"]["nmf"] = tick_nmf - tick_load
         results["times"]["estimation"] = tick_estimation - tick_nmf
+        results["times"]["total"] = tick_estimation - tick_init
 
-        with open(f"results/{date}/{mix_name}/results.pickle", "wb") as f:
-            pickle.dump(results, f)
+        logger.info(f"Total time taken: {tick_estimation - tick_init:.2f}")
 
-        plt.close("all")
     except Exception:
         logger.exception(f"Error when processing {mix_name}, aborting")
+    finally:
+        with open(f"results/{date}/{mix_name}/results.pickle", "wb") as f:
+            pickle.dump(results, f)
+        plt.close("all")
