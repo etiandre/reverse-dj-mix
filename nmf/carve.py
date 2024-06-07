@@ -3,15 +3,16 @@ import scipy.sparse
 import cv2
 
 
-def carve(H: np.ndarray, split_idx, threshold):
-    sum = H.sum(axis=0)
+def carve(H: np.ndarray, split_idx, threshold_dB):
+    threshold = 10 ** (threshold_dB / 20)
     for left, right in zip(split_idx, split_idx[1:]):
-        vol = H[left:right, :].sum(axis=0) / sum
-        H[left:right, vol < threshold] = 0
+        energy = H[left:right, :].max(axis=0)
+        H[left:right, energy < threshold] = 0
     return H
 
 
-def carve_naive(H: np.ndarray, threshold):
+def carve_naive(H: np.ndarray, threshold_dB):
+    threshold = 10 ** (threshold_dB / 20)
     H[H < threshold] = 0
     return H
 

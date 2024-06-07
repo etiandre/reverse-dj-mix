@@ -1,3 +1,7 @@
+import numpy as np
+import scipy.signal
+import pydub
+
 def fade(a: np.ndarray, b: np.ndarray, l: int):
     curve = np.linspace(0, 1, l)
     a_fade = a[-l:] * (1 - curve)
@@ -29,3 +33,13 @@ def lowpass_filter(data, cutoff_freq, sampling_rate, order=1):
     # Apply the filter to the data
     filtered_data = scipy.signal.sosfilt(sos, data)
     return filtered_data
+
+def write_mp3(path, sr, x, normalized=True):
+    """numpy array to MP3"""
+    channels = 2 if (x.ndim == 2 and x.shape[1] == 2) else 1
+    if normalized:  # normalized array - each item should be a float in [-1, 1)
+        y = np.int16(x * 2 ** 15)
+    else:
+        y = np.int16(x)
+    song = pydub.AudioSegment(y.tobytes(), frame_rate=sr, sample_width=2, channels=channels)
+    song.export(path, format="mp3", bitrate="320k")

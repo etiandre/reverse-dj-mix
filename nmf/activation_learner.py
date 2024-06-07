@@ -30,6 +30,9 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     return melspec, spec
 
 
+ENERGY_MIN = 1e-1
+
+
 class ActivationLearner:
     def __init__(
         self,
@@ -95,17 +98,23 @@ class ActivationLearner:
         else:
             W = np.concatenate(input_powspecs[:-1], axis=1)
 
-        # normalize W
-        self.colsum = np.sum(W, axis=0, keepdims=True)
-        W = W / self.colsum
+        # remove columns of W with too little energy to prevent explosion in NMF
+        W[:, W.mean(axis=0) < ENERGY_MIN] = 0
+        
+        # normalize W and V
+        self.W_norm_factor = W.sum(axis=0, keepdims=True)
+        self.W_norm_factor[self.W_norm_factor == 0] = 1
+        self.V_norm_factor = V.sum()
+        W = W / self.W_norm_factor
+        V = V / self.V_norm_factor
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
         H = scipy.sparse.bsr_array(H)
 
-        logger.debug(f"Shape of W: {W.shape}")
-        logger.debug(f"Shape of H: {H.shape}")
-        logger.debug(f"Shape of V: {V.shape}")
+        logger.info(f"Shape of W: {W.shape}")
+        logger.info(f"Shape of H: {H.shape}")
+        logger.info(f"Shape of V: {V.shape}")
 
         self.nmf = BetaNMF(V, W, H, beta, fixed_W=not self.learn_add, **nmf_kwargs)
 
@@ -122,18 +131,18 @@ class ActivationLearner:
             )
         else:
             self.nmf.iterate()
-        H = self.nmf.H.toarray()
 
         if self.polyphony_penalty > 0:
+            H = self.nmf.H.toarray()
             H_ = H.copy()
             poly_limit = 1  # maximum simultaneous activations in one column
             colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
             H_[H_ < colCutoff[None, :]] *= 1 - self.polyphony_penalty
             H = (1 - regulation_strength) * H + regulation_strength * H_
+            self.nmf.H = scipy.sparse.bsr_array(H)
 
-        H = np.clip(H, 0, 1)
-
-        self.nmf.H = scipy.sparse.bsr_array(H)
+        # TODO: clip efficiently
+        # self.nmf.H[self.nmf.H > 1e3] = 1e3
 
         # Calculate loss
         loss = self.nmf.loss()
@@ -141,32 +150,28 @@ class ActivationLearner:
 
         return loss
 
-    def reconstruct_track(self, i: int):
-        a = self.split_idx[i]
-        b = self.split_idx[i + 1]
-        if i < len(self.inputs) - 1:
-            Vi = self.nmf.V * (self.input_specs @ self.H[a:b, :]) / (self.W @ self.H)
-        else:  # no phase :(
-            raise NotImplementedError("Cannot reconstruct without original material")
-            # warnings.warn(f"Track {i} not in refs: i don't have phase info")
-            # Vi = (
-            # self.nmf.V
-            # * (self.nmf.W[:, a:b] @ self.nmf.H[a:b, :])
-            # / (self.nmf.W @ self.nmf.H)
-            # )
-
-        audio = librosa.istft(
-            Vi,
-            n_fft=int(self.fs * self.win_size),
-            hop_length=int(self.fs * self.hop_size),
-            win_length=int(self.fs * self.win_size),
-            center=False,
-            window=self.stft_win_func,
-        )
-        return audio
+    def reconstruct_tracks(self):
+        # TODO: does not work with such big nfft (need too much memory for inverse mel)
+        ret = []
+        mix_spec = self.input_specs[-1]
+        W_spec = np.concatenate(self.input_specs[:-1], axis=1)
+        for i, (a, b) in enumerate(zip(self.split_idx[:-1], self.split_idx[1:])):
+            track_spec = self.input_specs[i]
+            Vi = mix_spec * (track_spec @ self.H[a:b, :]) / (W_spec @ self.H)
+            audio = librosa.istft(
+                Vi,
+                n_fft=int(self.fs * self.win_size),
+                hop_length=int(self.fs * self.hop_size),
+                win_length=int(self.fs * self.win_size),
+                center=False,
+                window=self.stft_win_func,
+            )
+            ret.append(audio)
+        return ret
 
     def reconstruct_mix(self):
-        Vhat = self.W @ self.H
+        W_spec = np.concatenate(self.input_specs[:-1], axis=1)
+        Vhat = W_spec @ self.H
         audio = librosa.istft(
             Vhat,
             n_fft=int(self.fs * self.win_size),
@@ -179,15 +184,12 @@ class ActivationLearner:
 
     @property
     def H(self):
-        if isinstance(self.nmf.H, scipy.sparse.sparray):
-            return self.nmf.H.toarray() / self.colsum
-        else:
-            return self.nmf.H / self.colsum
+        return self.nmf.H.toarray() * self.V_norm_factor / self.W_norm_factor.T
 
     @property
     def W(self):
-        return self.nmf.W
+        return self.nmf.W * self.W_norm_factor
 
     @property
     def V(self):
-        return self.nmf.V
+        return self.nmf.V * self.V_norm_factor

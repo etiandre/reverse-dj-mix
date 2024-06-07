@@ -8,7 +8,9 @@ import matplotlib.pyplot as plt
 
 def center_of_mass_columns(matrix: np.ndarray):
     indices = np.arange(matrix.shape[0])
-    return np.sum(indices[:, np.newaxis] * matrix, axis=0) / np.sum(matrix, axis=0)
+    colsum = np.sum(matrix, axis=0)
+    colsum[colsum == 0] = 1 #TODO: hack
+    return np.sum(indices[:, np.newaxis] * matrix, axis=0) / colsum
 
 
 def rel_error(est: np.ndarray, real: np.ndarray):
@@ -144,9 +146,7 @@ def estimate_highparams(tau, gain, warp, filter_size=0.1, plot=False):
 
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
-    warp_slope, warp_intercept, _, _, _ = scipy.stats.linregress(
-        tau[mask], warp[mask]
-    )
+    warp_slope, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
 
     # calculate track start time
     track_start = -warp_intercept / warp_slope

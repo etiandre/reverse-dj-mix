@@ -1,6 +1,6 @@
 from pathlib import Path
 import numpy as np
-import soundfile
+import pydub
 import matplotlib.pyplot as plt
 import librosa
 from pprint import pprint
@@ -16,7 +16,7 @@ import time
 
 from unmixdb import UnmixDB
 from abcdj import ABCDJ
-import activation_learner, carve, plot, param_estimator
+import activation_learner, carve, plot, param_estimator, util
 
 
 # plt.style.use("dark_background")
@@ -54,17 +54,18 @@ def load_audios(paths: list[Path], fs: int):
 FS = 22050
 HOP_SIZES = [5.0, 1.0]
 OVERLAP_FACTOR = 4
-CARVE_THRESHOLD = 1e-2
-BETA = 0
+CARVE_THRESHOLD_DB = -60
+BETA = 0.5
 NMELS = 256
 VOL_FILTER_SIZE = 0.1
+
 # stop conditions
-DLOSS_MIN = 1e-8
+DLOSS_MIN = -np.inf
 LOSS_MIN = -np.inf
-ITER_MAX = 4000
-
-OUTDIR = "output"
-
+ITER_MAX = 1000
+# logging
+PLOT_NMF_EVERY = 500
+LOG_NMF_EVERY = 100
 unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
 # unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
 abcdj = ABCDJ(
@@ -89,7 +90,7 @@ for mix_name, mix in mixes.items():
             "ROUNDS": len(HOP_SIZES),
             "HOP_SIZES": repr(HOP_SIZES),
             "OVERLAP_FACTOR": OVERLAP_FACTOR,
-            "CARVE_THRESHOLD": CARVE_THRESHOLD,
+            "CARVE_THRESHOLD_DB": CARVE_THRESHOLD_DB,
             "DLOSS_MIN": DLOSS_MIN,
             "LOSS_MIN": LOSS_MIN,
             "ITER_MAX": ITER_MAX,
@@ -97,6 +98,7 @@ for mix_name, mix in mixes.items():
             "NMELS": NMELS,
             "VOL_FILTER_SIZE": VOL_FILTER_SIZE,
         }
+        logger.info(results["hyperparams"])
         logger.info(f"Starting work on {mix_name}")
         input_paths = [
             unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
@@ -128,9 +130,14 @@ for mix_name, mix in mixes.items():
 
             # carve and resize H from previous round
             if previous_H is not None:
-                H_carved = carve.carve(previous_H, previous_split_idx, CARVE_THRESHOLD)
+                H_carved = carve.carve(
+                    previous_H, previous_split_idx, CARVE_THRESHOLD_DB
+                )
                 H_carved_resized = carve.resize_cv_area(H_carved, learner.H.shape)
-                plot.plot_carve_resize(H_carved, H_carved_resized)
+                plot.plot_carve_resize(H_carved, H_carved_resized).savefig(
+                    f"results/{date}/{mix_name}/carve-{hop_size}.png"
+                )
+
                 learner.nmf.H = scipy.sparse.bsr_array(H_carved_resized)
 
             # iterate
@@ -142,34 +149,40 @@ for mix_name, mix in mixes.items():
                 dloss = abs(last_loss - loss)
                 last_loss = loss
 
-                # TODO: add H to plot
-                if i % 100 == 0:
+                if i % LOG_NMF_EVERY == 0:
                     logger.info(f"NMF iteration={i} loss={loss:.2e} dloss={dloss:.2e}")
                 if dloss < DLOSS_MIN or np.sum(loss) < LOSS_MIN or i > ITER_MAX:
                     logger.info(
                         f"Stopped at NMF iteration={i} loss={loss} dloss={dloss}"
                     )
                     break
+                if i % PLOT_NMF_EVERY == 0:
+                    plot.plot_nmf(learner).savefig(
+                        f"results/{date}/{mix_name}/nmf-{hop_size}-{i:05d}.png"
+                    )
 
             previous_H = learner.H
             previous_split_idx = learner.split_idx
 
         tick_nmf = time.time()
+        results["learner"] = learner
 
         # plot NMF
         plot.plot_nmf(learner).savefig(f"results/{date}/{mix_name}/nmf.png")
         results["loss"] = loss
 
-        for i in range(3):
-            logger.info(f"Reconstructing track {i}")
-            soundfile.write(
-                f"{mix_name}-reconstructed-{i:03d}.ogg",
-                learner.reconstruct_track(i),
-                samplerate=FS,
+        logger.info("Reconstructing tracks")
+        for i, y in enumerate(learner.reconstruct_tracks()):
+            util.write_mp3(
+                f"results/{date}/{mix_name}/reconstructed-{i:03d}.mp3",
+                FS,
+                y,
             )
-        logger.info(f"Reconstructing mix")
-        soundfile.write(
-            f"{mix_name}-reconstructed.ogg", learner.reconstruct_mix(), samplerate=FS
+        logger.info("Reconstructing mix")
+        util.write_mp3(
+            f"results/{date}/{mix_name}/reconstructed-mix.mp3",
+            FS,
+            learner.reconstruct_mix(),
         )
 
         # TODO: audio quality measure
@@ -259,7 +272,9 @@ for mix_name, mix in mixes.items():
 
         logger.info(f"Total time taken: {tick_estimation - tick_init:.2f}")
 
-    except Exception:
+    except Exception as e:
+        if e is KeyboardInterrupt:
+            exit(1)
         logger.exception(f"Error when processing {mix_name}, aborting")
     finally:
         with open(f"results/{date}/{mix_name}/results.pickle", "wb") as f:

@@ -56,19 +56,19 @@ def plot_warp(
     ax = ax or plt.gca()
 
     def plot_pos(positions, real: bool):
-        for i, ref_time in enumerate(positions.T):
-            coords = np.vstack([tau, ref_time]).T
-            for (x0, y0), (x1, y1) in zip(coords[:-1], coords[1:]):
-                ax.plot(
-                    (x0, x1),
-                    (y0, y1),
-                    "--" if real else "-",
-                    color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
-                )
+        for i, t in enumerate(positions.T):
+            ax.plot(
+                tau,
+                t,
+                "--" if real else "-",
+                color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
+                label=f"track {i}" if not real else None,
+            )
 
     plot_pos(warps, False)
     if ground_truth is not None:
         plot_pos(ground_truth, True)
+    ax.legend()
     ax.set_xlabel("mix time (s)")
     ax.set_ylabel("ref time (s)")
 
@@ -82,10 +82,10 @@ def plot_gain(
     ax = ax or plt.gca()
 
     def plot_g(gains, real: bool):
-        for i, v in enumerate(gains.T):
+        for i, g in enumerate(gains.T):
             ax.plot(
                 tau,
-                v,
+                g,
                 "--" if real else "-",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
                 label=f"track {i}" if not real else None,
@@ -101,15 +101,16 @@ def plot_gain(
 
 
 # TODO: time in seconds
-def plot_H(H: np.ndarray, split_idx, ax=None):
+def plot_H(H: np.ndarray, split_idx=None, ax=None):
     ax = ax or plt.gca()
-    im = ax.imshow(H, cmap=CMAP, aspect="auto", origin="lower")
+    im = imshow_highlight_zero(H, ax, cmap=CMAP, aspect="auto", origin="lower")
+    
+    if split_idx is not None:
+        for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
+            COLOR = "black"
+            ax.axhline(a - 0.5, color=COLOR, linestyle="--")
+            ax.annotate(f"track {track}", (0, (a + b) / 2), color=COLOR)
 
-    for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-        ax.axhline(a - 0.5, color="r", linestyle="--")
-        ax.annotate(f"track {track}", (0, (a + b) / 2), color="red")
-
-    ax.set_title("H (activations)")
     ax.set_xlabel("mix frame")
     ax.set_ylabel("ref frame")
     return im
@@ -121,7 +122,7 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
     im = _pow_specshow(W, ax)
     # annotate track boundaries if given
     if split_idx is not None:
-        COLOR = "white"
+        COLOR = "black"
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
             ax.axvline(a - 0.5, color=COLOR, linestyle="--")
             ax.annotate(f"track {track}", ((a + b) / 2, 1), color=COLOR)
@@ -134,15 +135,19 @@ def plot_nmf(model: ActivationLearner):
 
     im = plot_H(model.H, model.split_idx, ax=axes[0, 0])
     fig.colorbar(im, ax=axes[0, 0])
+    axes[0, 0].set_title("H")
 
     im = plot_pow_spec(model.W, model.split_idx, ax=axes[0, 1])
     fig.colorbar(im, ax=axes[0, 1])
+    axes[0, 1].set_title("W")
 
     im = plot_pow_spec(model.V, ax=axes[1, 0])
     fig.colorbar(im, ax=axes[1, 0])
+    axes[1, 0].set_title("V")
 
     im = plot_pow_spec(model.W @ model.H, ax=axes[1, 1])
     fig.colorbar(im, ax=axes[1, 1])
+    axes[1, 1].set_title("WH")
 
     plt.tight_layout()
     return fig
