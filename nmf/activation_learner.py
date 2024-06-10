@@ -63,22 +63,20 @@ class ActivationLearner:
         self.stft_win_func = stft_win_func
 
         # transform inputs
-        with multiprocessing.Pool() as pool:
-            f = functools.partial(
-                _transform_melspec,
-                fs=fs,
-                n_mels=n_mels,
-                stft_win_func=stft_win_func,
-                win_len=win_len,
-                hop_len=hop_len,
-            )
-            input_powspecs, input_specs = zip(
-                *tqdm(
-                    pool.imap(f, inputs),
-                    desc="Transforming inputs",
-                    total=len(inputs),
+        logger.info("Transforming inputs")
+        input_powspecs, input_specs = zip(
+            *[
+                _transform_melspec(
+                    i,
+                    fs=fs,
+                    n_mels=n_mels,
+                    stft_win_func=stft_win_func,
+                    win_len=win_len,
+                    hop_len=hop_len,
                 )
-            )
+                for i in inputs
+            ]
+        )
 
         # save specs for reconstruction
         self.input_specs = input_specs
@@ -100,7 +98,7 @@ class ActivationLearner:
 
         # remove columns of W with too little energy to prevent explosion in NMF
         W[:, W.mean(axis=0) < ENERGY_MIN] = 0
-        
+
         # normalize W and V
         self.W_norm_factor = W.sum(axis=0, keepdims=True)
         self.W_norm_factor[self.W_norm_factor == 0] = 1

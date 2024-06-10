@@ -133,7 +133,6 @@ def mu_W(W, H, V, beta, l1_reg, l2_reg):
     dW = num / dem
     return W * dW
 
-
 class BetaNMF:
     def __init__(
         self,
@@ -172,7 +171,6 @@ class BetaNMF:
             algorithm = "mu_variance"
         else:
             algorithm = "mu"
-        print(f"Using algorithm {algorithm}")
         self.V = V  # FxN
         self.W = W  # FxK
         self.H = H  # KxN

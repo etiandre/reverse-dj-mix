@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 def center_of_mass_columns(matrix: np.ndarray):
     indices = np.arange(matrix.shape[0])
     colsum = np.sum(matrix, axis=0)
-    colsum[colsum == 0] = 1 #TODO: hack
+    colsum[colsum == 0] = 1  # TODO: hack
     return np.sum(indices[:, np.newaxis] * matrix, axis=0) / colsum
 
 
@@ -70,27 +70,81 @@ class WarpEstimator(enum.Enum):
         return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0))
 
 
-def dynamic_threshold_moving_average(signal, window_size):
-    threshold = np.convolve(
-        np.abs(signal), np.ones(window_size) / window_size, mode="same"
+def ideal_gain(tau, tau0, a, b, c, g_max):
+    tau1 = tau0 + a
+    tau2 = tau1 + b
+    tau3 = tau2 + c
+    return np.piecewise(
+        tau,
+        [
+            tau < tau0,
+            (tau >= tau0) & (tau < tau1),
+            (tau >= tau1) & (tau < tau2),
+            (tau >= tau2) & (tau < tau3),
+            tau >= tau3,
+        ],
+        [
+            lambda tau: 0,
+            lambda tau: (g_max - 0) / (tau1 - tau0) * (tau - tau0) + 0,
+            lambda tau: g_max,
+            lambda tau: (0 - g_max) / (tau3 - tau2) * (tau - tau2) + g_max,
+            lambda tau: 0,
+        ],
     )
-    return np.where(signal > threshold, 1, 0)
 
 
-def estimate_highparams(tau, gain, warp, filter_size=0.1, plot=False):
-    # normalize
-    gain_norm = gain / gain.max()
+def fit_ideal_gain(tau, gain):
+    start_bounds = [tau[0], tau[-1]]
+    fadein_duration_bounds = [1, 10]
+    play_duration_bounds = [1, np.inf]
+    fadeout_duration_bounds = [1, 10]
+    gmax_bounds = [0.1, 1]
+    # fit ideal gain to signal
+    p, e = scipy.optimize.curve_fit(
+        ideal_gain,
+        tau,
+        gain,
+        bounds=np.column_stack(
+            [
+                start_bounds,
+                fadein_duration_bounds,
+                play_duration_bounds,
+                fadeout_duration_bounds,
+                gmax_bounds,
+            ]
+        ),
+    )
 
+    # calculate fade bounds and slopes
+    tau0, a, b, c, g_max = p
+    fadein_start = tau0
+    fadein_stop = tau0 + a
+    fadeout_start = tau0 + a + b
+    fadeout_stop = tau0 + a + b + c
+    return (
+        fadein_start,
+        fadein_stop,
+        fadeout_start,
+        fadeout_stop,
+        0,
+        g_max,
+    )
+
+
+def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
     # median filter
     kernel_size = int(filter_size / (tau[1] - tau[0]))
     if kernel_size % 2 == 0:
         kernel_size += 1  # must be odd
-    gain_filt = scipy.signal.medfilt(gain_norm, kernel_size=kernel_size)
+    gain_filt = scipy.signal.medfilt(gain, kernel_size=kernel_size)
+
+    # normalize
+    gain_norm = gain_filt / gain_filt.max()
 
     # threshold and find contiguous playing slices
-    thresh_gain_mask = np.ma.masked_array(gain_filt)
-    thresh_gain_mask[gain_filt > 0.5] = np.ma.masked
-    playing_slices = np.ma.clump_masked(thresh_gain_mask)
+    thresh_gain_mask = np.ma.masked_array(gain_norm)
+    thresh_gain_mask[gain_norm < 0.5] = np.ma.masked
+    playing_slices = np.ma.clump_unmasked(thresh_gain_mask)
 
     if len(playing_slices) > 0:
         # get the longest one
@@ -99,51 +153,20 @@ def estimate_highparams(tau, gain, warp, filter_size=0.1, plot=False):
         # thresholding failed: take the whole signal and hope for the best
         longest_slice = slice(0, len(gain) - 1)
 
-    # pad
+    # pad the slice
     longest_slice_len = longest_slice.stop - longest_slice.start
     rough_start_idx = max(longest_slice.start - longest_slice_len // 2, 0)
     rough_stop_idx = min(longest_slice.stop + longest_slice_len // 2, len(gain) - 1)
-
-    # define ideal gain curve function
-    def ideal_gain(tau, tau0, tau1, tau2, tau3):
-        return np.piecewise(
-            tau,
-            [
-                tau < tau0,
-                (tau >= tau0) & (tau < tau1),
-                (tau >= tau1) & (tau < tau2),
-                (tau >= tau2) & (tau < tau3),
-                tau >= tau3,
-            ],
-            [
-                lambda tau: 0,
-                lambda tau: (1 - 0) / (tau1 - tau0) * (tau - tau0) + 0,
-                lambda tau: 1,
-                lambda tau: (0 - 1) / (tau3 - tau2) * (tau - tau2) + 1,
-                lambda tau: 0,
-            ],
-        )
-
-    # fit ideal gain to signal
-    tstart, tstop = tau[rough_start_idx], tau[rough_stop_idx]
-    p, e = scipy.optimize.curve_fit(
-        ideal_gain,
-        tau[longest_slice],
-        gain[longest_slice],
-        p0=[
-            tstart,
-            tstart + (tstop - tstart) * 1 / 3,
-            tstart + (tstop - tstart) * 2 / 3,
-            tstop,
-        ],
-        bounds=(tstart, tstop),
-    )
-
-    # calculate fade bounds and slopes
-    fadein_start, fadein_stop, fadeout_start, fadeout_stop = p
-    fadein_slope = -1 / (fadein_start - fadein_stop)
-    fadeout_slope = 1 / (fadeout_start - fadeout_stop)
-
+    longest_slice = slice(rough_start_idx, rough_stop_idx)
+    print(longest_slice)
+    (
+        fadein_start,
+        fadein_stop,
+        fadeout_start,
+        fadeout_stop,
+        g_min,
+        g_max,
+    ) = fit_ideal_gain(tau[longest_slice], gain_norm[longest_slice])
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
     warp_slope, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
@@ -152,10 +175,17 @@ def estimate_highparams(tau, gain, warp, filter_size=0.1, plot=False):
     track_start = -warp_intercept / warp_slope
 
     if plot:
-        fig, axes = plt.subplots(2, 1)
-        axes[0].plot(tau, gain_norm, label="norm", alpha=0.5)
-        axes[0].plot(tau, gain_filt, label="filt")
-        axes[0].plot(tau, ideal_gain(tau, *p), label="fit")
+        fig, axes = plt.subplots(2, 1, figsize=(20,6))
+        axes[0].plot(tau, gain, label="input", alpha=0.5)
+        axes[0].plot(tau, gain_norm, label="filt")
+        axes[0].plot(tau, thresh_gain_mask, label="thresh")
+        axes[0].axvline(tau[longest_slice.start])
+        axes[0].axvline(tau[longest_slice.stop])
+        axes[0].plot(
+            [fadein_start, fadein_stop, fadeout_start, fadeout_stop],
+            [g_min, g_max, g_max, g_min],
+            label="fit",
+        )
         axes[0].set_title("gain")
         axes[0].legend()
 
@@ -171,9 +201,7 @@ def estimate_highparams(tau, gain, warp, filter_size=0.1, plot=False):
         track_start,
         fadein_start,
         fadein_stop,
-        fadein_slope,
         fadeout_start,
         fadeout_stop,
-        fadeout_slope,
         fig,
     )

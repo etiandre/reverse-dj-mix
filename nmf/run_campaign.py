@@ -13,78 +13,69 @@ import datetime
 import os
 import pickle
 import time
+import joblib
 
 from unmixdb import UnmixDB
 from abcdj import ABCDJ
 import activation_learner, carve, plot, param_estimator, util
 
 
-# plt.style.use("dark_background")
-date = datetime.datetime.now().isoformat()
-os.makedirs(f"results/{date}")
-
-logFormatter = logging.Formatter(
-    "%(asctime)s [%(threadName)-12.12s] [%(levelname)-5.5s]  %(message)s"
-)
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-fileHandler = logging.FileHandler(f"results/{date}/output.log")
-fileHandler.setFormatter(logFormatter)
-logger.addHandler(fileHandler)
-
-consoleHandler = logging.StreamHandler()
-consoleHandler.setFormatter(logFormatter)
-logger.addHandler(consoleHandler)
-
-
-def load_audios(paths: list[Path], fs: int):
-    # def load_audio(path):
-    #     return librosa.load(path, sr=fs)[0]
-
-    # with multiprocessing.Pool() as pool:
-    #     inputs = list(pool.imap(load_audio, paths))
-    inputs = [librosa.load(path, sr=fs)[0] for path in paths]
-    return inputs
-
-
 # configuration
 # =============
 
+# hyperparams
 FS = 22050
 HOP_SIZES = [5.0, 1.0]
 OVERLAP_FACTOR = 4
 CARVE_THRESHOLD_DB = -60
-BETA = 0.5
+BETA = 0
 NMELS = 256
-VOL_FILTER_SIZE = 0.1
 
 # stop conditions
 DLOSS_MIN = -np.inf
 LOSS_MIN = -np.inf
-ITER_MAX = 1000
+ITER_MAX = 2000
+
+## other stuff
+WORKERS = 20
 # logging
 PLOT_NMF_EVERY = 500
 LOG_NMF_EVERY = 100
-unmixdb = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
-# unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
-abcdj = ABCDJ(
-    "/data2/anasynth_nonbp/schwarz/abc-dj/src-git/unmixing/results-unmixdb-full"
+# paths
+RESULTS_DIR = Path("/data5/anasynth_nonbp/andre/reverse-dj-mix/results")
+UNMIXDB_PATH = Path("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
+#############################
+
+# plt.style.use("dark_background")
+date = datetime.datetime.now().isoformat()
+os.makedirs(RESULTS_DIR / f"{date}")
+
+logFormatter = logging.Formatter(
+    "%(asctime)s [%(process)-3.3d] [%(levelname)-5.5s]  %(message)s"
 )
 
-# filter by no stretch no fx :) :) :)
-mixes = dict(
-    filter(
-        lambda i: i[1].timestretch == "none" and i[1].fx == "none",
-        unmixdb.mixes.items(),
-    )
-)
-logger.info(f"Will process {len(mixes)} mixes")
-# ==============
-for mix_name, mix in mixes.items():
+unmixdb = UnmixDB(UNMIXDB_PATH)
+# unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
+
+
+def worker(mix_name, mix):
     results = {}
+    os.makedirs(RESULTS_DIR / f"{date}/{mix_name}")
+    # setup logging
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    fileHandler = logging.FileHandler(RESULTS_DIR / f"{date}/{mix_name}/output.log")
+    fileHandler.setFormatter(logFormatter)
+    logger.addHandler(fileHandler)
+
+    consoleHandler = logging.StreamHandler()
+    consoleHandler.setFormatter(logFormatter)
+    logger.addHandler(consoleHandler)
+
     try:
-        os.makedirs(f"results/{date}/{mix_name}")
+        logger.info(f"Starting work on {mix_name}")
+        results["mix_name"] = mix_name
         results["hyperparams"] = {
             "FS": FS,
             "ROUNDS": len(HOP_SIZES),
@@ -96,10 +87,8 @@ for mix_name, mix in mixes.items():
             "ITER_MAX": ITER_MAX,
             "BETA": BETA,
             "NMELS": NMELS,
-            "VOL_FILTER_SIZE": VOL_FILTER_SIZE,
         }
         logger.info(results["hyperparams"])
-        logger.info(f"Starting work on {mix_name}")
         input_paths = [
             unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
         ] + [mix.audio_path]
@@ -108,7 +97,7 @@ for mix_name, mix in mixes.items():
         tick_init = time.time()
 
         # load audios
-        inputs = load_audios(input_paths, FS)
+        inputs = [librosa.load(path, sr=FS)[0] for path in input_paths]
 
         tick_load = time.time()
 
@@ -135,7 +124,7 @@ for mix_name, mix in mixes.items():
                 )
                 H_carved_resized = carve.resize_cv_area(H_carved, learner.H.shape)
                 plot.plot_carve_resize(H_carved, H_carved_resized).savefig(
-                    f"results/{date}/{mix_name}/carve-{hop_size}.png"
+                    RESULTS_DIR / f"{date}/{mix_name}/carve-{hop_size}.png"
                 )
 
                 learner.nmf.H = scipy.sparse.bsr_array(H_carved_resized)
@@ -158,32 +147,34 @@ for mix_name, mix in mixes.items():
                     break
                 if i % PLOT_NMF_EVERY == 0:
                     plot.plot_nmf(learner).savefig(
-                        f"results/{date}/{mix_name}/nmf-{hop_size}-{i:05d}.png"
+                        RESULTS_DIR / f"{date}/{mix_name}/nmf-{hop_size}-{i:05d}.png"
                     )
 
             previous_H = learner.H
             previous_split_idx = learner.split_idx
 
         tick_nmf = time.time()
-        results["learner"] = learner
+        results["H"] = learner.H
 
         # plot NMF
-        plot.plot_nmf(learner).savefig(f"results/{date}/{mix_name}/nmf.png")
+        plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix_name}/nmf.png")
         results["loss"] = loss
 
         logger.info("Reconstructing tracks")
         for i, y in enumerate(learner.reconstruct_tracks()):
             util.write_mp3(
-                f"results/{date}/{mix_name}/reconstructed-{i:03d}.mp3",
+                RESULTS_DIR / f"{date}/{mix_name}/reconstructed-{i:03d}.mp3",
                 FS,
                 y,
             )
         logger.info("Reconstructing mix")
         util.write_mp3(
-            f"results/{date}/{mix_name}/reconstructed-mix.mp3",
+            RESULTS_DIR / f"{date}/{mix_name}/reconstructed-mix.mp3",
             FS,
             learner.reconstruct_mix(),
         )
+
+        tick_reconstruct = time.time()
 
         # TODO: audio quality measure
 
@@ -202,7 +193,7 @@ for mix_name, mix in mixes.items():
 
             fig = plt.figure()
             plot.plot_gain(tau, est_gain, real_gain)
-            fig.savefig(f"results/{date}/{mix_name}/{estimator}.png")
+            fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{estimator}.png")
             results["est_gain"][str(estimator)] = est_gain
 
         # estimate warp
@@ -213,7 +204,7 @@ for mix_name, mix in mixes.items():
 
             fig = plt.figure()
             plot.plot_warp(tau, est_warp, real_warp)
-            fig.savefig(f"results/{date}/{mix_name}/{estimator}.png")
+            fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{estimator}.png")
 
             results["est_warp"][str(estimator)] = est_warp
 
@@ -221,11 +212,14 @@ for mix_name, mix in mixes.items():
         results["highparams"] = [{}, {}, {}]
         for i in range(3):
             ret = {}
-            ret["real_track_start"] = mix.tracks[i]["start"]
-            ret["real_fadein_start"] = mix.tracks[i]["fadein"][0]
-            ret["real_fadein_stop"] = mix.tracks[i]["fadein"][1]
-            ret["real_fadeout_start"] = mix.tracks[i]["fadeout"][0]
-            ret["real_fadeout_stop"] = mix.tracks[i]["fadeout"][1]
+            ret["real"] = {}
+            ret["real"]["track_start"] = mix.tracks[i]["start"]
+            ret["real"]["fadein_start"] = mix.tracks[i]["fadein"][0]
+            ret["real"]["fadein_stop"] = mix.tracks[i]["fadein"][1]
+            ret["real"]["fadeout_start"] = mix.tracks[i]["fadeout"][0]
+            ret["real"]["fadeout_stop"] = mix.tracks[i]["fadeout"][1]
+
+            ret["est"] = {}
             for (g_estor, est_gain), (
                 w_estor,
                 est_warp,
@@ -239,27 +233,24 @@ for mix_name, mix in mixes.items():
                     est_track_start,
                     est_fadein_start,
                     est_fadein_stop,
-                    est_fadein_slope,
                     est_fadeout_start,
                     est_fadeout_stop,
-                    est_fadeout_slope,
                     fig,
                 ) = param_estimator.estimate_highparams(
                     tau, est_gain[:, i], est_warp[:, i], plot=True
                 )
                 fig.savefig(
-                    f"results/{date}/{mix_name}/highparams-{i}-{g_estor}-{w_estor}.png",
+                    RESULTS_DIR
+                    / f"{date}/{mix_name}/highparams-{i}-{g_estor}-{w_estor}.png",
                 )
-                ret[str(g_estor)] = {}
-                ret[str(g_estor)][str(w_estor)] = {}
-                ret[str(g_estor)][str(w_estor)]["est_track_start"] = est_track_start
-                ret[str(g_estor)][str(w_estor)]["est_fadein_start"] = est_fadein_start
-                ret[str(g_estor)][str(w_estor)]["est_fadein_stop"] = est_fadein_stop
-                ret[str(g_estor)][str(w_estor)]["est_fadein_slope"] = est_fadein_slope
-                ret[str(g_estor)][str(w_estor)]["est_fadeout_start"] = est_fadeout_start
-                ret[str(g_estor)][str(w_estor)]["est_fadeout_stop"] = est_fadeout_stop
-                ret[str(g_estor)][str(w_estor)]["est_fadeout_slope"] = est_fadeout_slope
-                results["highparams"][i] = ret
+                estor = str(g_estor) + " " + str(w_estor)
+                ret["est"][estor] = {}
+                ret["est"][estor]["track_start"] = est_track_start
+                ret["est"][estor]["fadein_start"] = est_fadein_start
+                ret["est"][estor]["fadein_stop"] = est_fadein_stop
+                ret["est"][estor]["fadeout_start"] = est_fadeout_start
+                ret["est"][estor]["fadeout_stop"] = est_fadeout_stop
+                results["highparams"][i].update(ret)
 
         tick_estimation = time.time()
 
@@ -267,7 +258,8 @@ for mix_name, mix in mixes.items():
         results["times"] = {}
         results["times"]["load"] = tick_load - tick_init
         results["times"]["nmf"] = tick_nmf - tick_load
-        results["times"]["estimation"] = tick_estimation - tick_nmf
+        results["times"]["reconstruction"] = tick_reconstruct - tick_nmf
+        results["times"]["estimation"] = tick_estimation - tick_reconstruct
         results["times"]["total"] = tick_estimation - tick_init
 
         logger.info(f"Total time taken: {tick_estimation - tick_init:.2f}")
@@ -277,6 +269,21 @@ for mix_name, mix in mixes.items():
             exit(1)
         logger.exception(f"Error when processing {mix_name}, aborting")
     finally:
-        with open(f"results/{date}/{mix_name}/results.pickle", "wb") as f:
+        with open(RESULTS_DIR / f"{date}/{mix_name}/results.pickle", "wb") as f:
             pickle.dump(results, f)
         plt.close("all")
+
+
+if __name__ == "__main__":
+    # filter by no stretch no fx :) :) :)
+    mixes = dict(
+        filter(
+            lambda i: i[1].timestretch == "none" and i[1].fx == "none",
+            unmixdb.mixes.items(),
+        )
+    )
+    logging.info(f"Will process {len(mixes)} mixes")
+    # ==============
+    joblib.Parallel(WORKERS, verbose=10)(
+        joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixes.items()
+    )
