@@ -8,7 +8,7 @@ import scipy.ndimage
 import scipy.signal
 import logging
 import itertools
-import scipy.sparse
+import sparse
 import datetime
 import os
 import pickle
@@ -19,19 +19,24 @@ from unmixdb import UnmixDB
 from abcdj import ABCDJ
 import activation_learner, carve, plot, param_estimator, util, modular_nmf
 
+from common import dense_to_sparse, sparse_to_dense
+
 
 # configuration
 # =============
 
 # hyperparams
 FS = 22050
-HOP_SIZES = [5.0, 1.0]
-OVERLAP_FACTOR = 4
+HOP_SIZES = [1.0]
+OVERLAP_FACTOR = 1
 CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
-# PENALTIES = [(modular_nmf.L1(), 10000)]
-PENALTIES = []
+PENALTIES = [
+    # (modular_nmf.L1(), 10000),
+    # (modular_nmf.SmoothGain(), 1e-2)
+    (modular_nmf.VirtanenTemporalContinuity(), 1)
+]
 
 # stop conditions
 DLOSS_MIN = -np.inf
@@ -52,8 +57,13 @@ date = datetime.datetime.now().isoformat()
 os.makedirs(RESULTS_DIR / f"{date}")
 
 logFormatter = logging.Formatter(
-    "%(asctime)s [%(process)-3.3d] [%(levelname)-5.5s]  %(message)s"
+    "%(asctime)s [%(name)-23.23s] [%(levelname)-5.5s]  %(message)s"
 )
+rootLogger = logging.getLogger()
+rootLogger.setLevel(logging.INFO)
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
 
 unmixdb = UnmixDB(UNMIXDB_PATH)
 # unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
@@ -63,16 +73,12 @@ def worker(mix_name, mix):
     results = {}
     os.makedirs(RESULTS_DIR / f"{date}/{mix_name}")
     # setup logging
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
+    logger = logging.getLogger(mix_name)
+    logger.setLevel(logging.DEBUG)
 
     fileHandler = logging.FileHandler(RESULTS_DIR / f"{date}/{mix_name}/output.log")
     fileHandler.setFormatter(logFormatter)
     logger.addHandler(fileHandler)
-
-    consoleHandler = logging.StreamHandler()
-    consoleHandler.setFormatter(logFormatter)
-    logger.addHandler(consoleHandler)
 
     try:
         logger.info(f"Starting work on {mix_name}")
@@ -129,7 +135,7 @@ def worker(mix_name, mix):
                     RESULTS_DIR / f"{date}/{mix_name}/carve-{hop_size}.png"
                 )
 
-                learner.nmf.H = scipy.sparse.bsr_array(H_carved_resized)
+                learner._H = dense_to_sparse(H_carved_resized)
 
             # iterate
             logger.info("Running NMF")
@@ -298,7 +304,10 @@ if __name__ == "__main__":
         )
     )
     logging.info(f"Will process {len(mixes)} mixes")
-    # ==============
-    joblib.Parallel(args.workers, verbose=10)(
-        joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixes.items()
-    )
+    if args.workers == 1:
+        for mix_name, mix in mixes.items():
+            worker(mix_name, mix)
+    else:
+        joblib.Parallel(args.workers, verbose=10)(
+            joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixes.items()
+        )

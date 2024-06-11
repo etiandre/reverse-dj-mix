@@ -1,5 +1,5 @@
 import numpy as np
-import scipy.sparse
+import sparse
 import scipy.ndimage
 import scipy.signal
 import librosa
@@ -7,6 +7,7 @@ import logging
 from modular_nmf import Divergence, Penalty, NMF
 
 logger = logging.getLogger(__name__)
+from common import sparse_to_dense, dense_to_sparse
 
 
 def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
@@ -102,7 +103,7 @@ class ActivationLearner:
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
-        H = scipy.sparse.bsr_array(H)
+        H = dense_to_sparse(H)
 
         logger.info(f"Shape of W: {W.shape}")
         logger.info(f"Shape of H: {H.shape}")
@@ -129,13 +130,13 @@ class ActivationLearner:
 
         # TODO make this a bit more generic
         if self.polyphony_penalty > 0:
-            H = self._H.toarray()
+            H = sparse_to_dense(self._H)
             H_ = H.copy()
             poly_limit = 1  # maximum simultaneous activations in one column
             colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
             H_[H_ < colCutoff[None, :]] *= 1 - self.polyphony_penalty
             H = (1 - regulation_strength) * H + regulation_strength * H_
-            self._H = scipy.sparse.bsr_array(H)
+            self._H = dense_to_sparse(H)
 
         # TODO: clip efficiently
         # self._H[self._H > 1e3] = 1e3
@@ -147,7 +148,6 @@ class ActivationLearner:
         return full_loss, losses
 
     def reconstruct_tracks(self):
-        # TODO: does not work with such big nfft (need too much memory for inverse mel)
         ret = []
         mix_spec = self.input_specs[-1]
         W_spec = np.concatenate(self.input_specs[:-1], axis=1)
@@ -180,7 +180,7 @@ class ActivationLearner:
 
     @property
     def H(self):
-        return self._H.toarray() * self.V_norm_factor / self.W_norm_factor.T
+        return sparse_to_dense(self._H) * self.V_norm_factor / self.W_norm_factor.T
 
     @property
     def W(self):
