@@ -1,16 +1,10 @@
 import numpy as np
-import warnings
-import enum
 import scipy.sparse
-from beta_nmf import BetaNMF
 import scipy.ndimage
 import scipy.signal
 import librosa
 import logging
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-import multiprocessing
-import functools
+from modular_nmf import Divergence, Penalty, NMF
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +34,12 @@ class ActivationLearner:
         fs: int,
         win_size: float,
         hop_size: float,
-        beta=0,
+        divergence: Divergence,
+        penalties: list[tuple[Penalty, float]],
         additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
         polyphony_penalty: float = 0,
-        **nmf_kwargs,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
@@ -114,39 +108,43 @@ class ActivationLearner:
         logger.info(f"Shape of H: {H.shape}")
         logger.info(f"Shape of V: {V.shape}")
 
-        self.nmf = BetaNMF(V, W, H, beta, fixed_W=not self.learn_add, **nmf_kwargs)
+        self._V, self._W, self._H = V, W, H
+
+        self.nmf = NMF(divergence, [], penalties)
 
     def iterate(self, regulation_strength: float = 1.0):
         if self.learn_add:
+            # TODO: this is very unefficient
             # save everything except Wa
-            W_save = self.nmf.W[:, : self.split_idx[-2]].copy()
-            self.nmf.iterate()
+            W_save = self._W[:, : self.split_idx[-2]].copy()
+            self._W = self.nmf.iterate_W(self._V, self._W, self._H)
             # copy it back
-            self.nmf.W[:, : self.split_idx[-2]] = W_save
+            self._W[:, : self.split_idx[-2]] = W_save
             # clip Wa
-            self.nmf.W[:, self.split_idx[-2] : self.split_idx[-1]] = np.clip(
-                self.nmf.W[:, self.split_idx[-2] : self.split_idx[-1]], 0, 1
+            self._W[:, self.split_idx[-2] : self.split_idx[-1]] = np.clip(
+                self._W[:, self.split_idx[-2] : self.split_idx[-1]], 0, 1
             )
         else:
-            self.nmf.iterate()
+            self._H = self.nmf.iterate_H(self._V, self._W, self._H)
 
+        # TODO make this a bit more generic
         if self.polyphony_penalty > 0:
-            H = self.nmf.H.toarray()
+            H = self._H.toarray()
             H_ = H.copy()
             poly_limit = 1  # maximum simultaneous activations in one column
             colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
             H_[H_ < colCutoff[None, :]] *= 1 - self.polyphony_penalty
             H = (1 - regulation_strength) * H + regulation_strength * H_
-            self.nmf.H = scipy.sparse.bsr_array(H)
+            self._H = scipy.sparse.bsr_array(H)
 
         # TODO: clip efficiently
-        # self.nmf.H[self.nmf.H > 1e3] = 1e3
+        # self._H[self._H > 1e3] = 1e3
 
         # Calculate loss
-        loss = self.nmf.loss()
-        assert not np.isnan(loss).any(), "NaN in loss"
-
-        return loss
+        full_loss, losses = self.nmf.loss(self._V, self._W, self._H)
+        losses["penalties"] = losses["penalties_H"]
+        del losses["penalties_W"]
+        return full_loss, losses
 
     def reconstruct_tracks(self):
         # TODO: does not work with such big nfft (need too much memory for inverse mel)
@@ -182,12 +180,12 @@ class ActivationLearner:
 
     @property
     def H(self):
-        return self.nmf.H.toarray() * self.V_norm_factor / self.W_norm_factor.T
+        return self._H.toarray() * self.V_norm_factor / self.W_norm_factor.T
 
     @property
     def W(self):
-        return self.nmf.W * self.W_norm_factor
+        return self._W * self.W_norm_factor
 
     @property
     def V(self):
-        return self.nmf.V * self.V_norm_factor
+        return self._V * self.V_norm_factor

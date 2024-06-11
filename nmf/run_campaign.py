@@ -17,7 +17,7 @@ import joblib
 
 from unmixdb import UnmixDB
 from abcdj import ABCDJ
-import activation_learner, carve, plot, param_estimator, util
+import activation_learner, carve, plot, param_estimator, util, modular_nmf
 
 
 # configuration
@@ -28,8 +28,10 @@ FS = 22050
 HOP_SIZES = [5.0, 1.0]
 OVERLAP_FACTOR = 4
 CARVE_THRESHOLD_DB = -60
-BETA = 0
 NMELS = 256
+DIVERGENCE = modular_nmf.BetaDivergence(0)
+# PENALTIES = [(modular_nmf.L1(), 10000)]
+PENALTIES = []
 
 # stop conditions
 DLOSS_MIN = -np.inf
@@ -37,7 +39,6 @@ LOSS_MIN = -np.inf
 ITER_MAX = 2000
 
 ## other stuff
-WORKERS = 20
 # logging
 PLOT_NMF_EVERY = 500
 LOG_NMF_EVERY = 100
@@ -78,15 +79,15 @@ def worker(mix_name, mix):
         results["mix_name"] = mix_name
         results["hyperparams"] = {
             "FS": FS,
-            "ROUNDS": len(HOP_SIZES),
-            "HOP_SIZES": repr(HOP_SIZES),
+            "HOP_SIZES": HOP_SIZES,
             "OVERLAP_FACTOR": OVERLAP_FACTOR,
             "CARVE_THRESHOLD_DB": CARVE_THRESHOLD_DB,
             "DLOSS_MIN": DLOSS_MIN,
             "LOSS_MIN": LOSS_MIN,
             "ITER_MAX": ITER_MAX,
-            "BETA": BETA,
             "NMELS": NMELS,
+            "DIVERGENCE": DIVERGENCE,
+            "PENALTIES": PENALTIES,
         }
         logger.info(results["hyperparams"])
         input_paths = [
@@ -112,9 +113,10 @@ def worker(mix_name, mix):
                 inputs,
                 fs=FS,
                 n_mels=NMELS,
-                beta=BETA,
                 win_size=win_size,
                 hop_size=hop_size,
+                divergence=DIVERGENCE,
+                penalties=PENALTIES,
             )
 
             # carve and resize H from previous round
@@ -132,11 +134,12 @@ def worker(mix_name, mix):
             # iterate
             logger.info("Running NMF")
             last_loss = np.inf
+            loss_history = []
             for i in itertools.count():
-                # TODO: get all components of loss
-                loss = learner.iterate()
+                loss, loss_components = learner.iterate()
                 dloss = abs(last_loss - loss)
                 last_loss = loss
+                loss_history.append(loss_components)
 
                 if i % LOG_NMF_EVERY == 0:
                     logger.info(f"NMF iteration={i} loss={loss:.2e} dloss={dloss:.2e}")
@@ -155,10 +158,16 @@ def worker(mix_name, mix):
 
         tick_nmf = time.time()
         results["H"] = learner.H
+        results["loss"] = loss_components
+        results["loss_history"] = loss_history
 
         # plot NMF
         plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix_name}/nmf.png")
-        results["loss"] = loss
+
+        # plot loss history
+        plot.plot_loss_history(loss_history).savefig(
+            RESULTS_DIR / f"{date}/{mix_name}/loss.png"
+        )
 
         logger.info("Reconstructing tracks")
         for i, y in enumerate(learner.reconstruct_tracks()):
@@ -275,6 +284,12 @@ def worker(mix_name, mix):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workers", type=int, required=True)
+    args = parser.parse_args()
+
     # filter by no stretch no fx :) :) :)
     mixes = dict(
         filter(
@@ -284,6 +299,6 @@ if __name__ == "__main__":
     )
     logging.info(f"Will process {len(mixes)} mixes")
     # ==============
-    joblib.Parallel(WORKERS, verbose=10)(
+    joblib.Parallel(args.workers, verbose=10)(
         joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixes.items()
     )

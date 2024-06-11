@@ -37,14 +37,19 @@ def plot_carve_resize(H_carved: np.ndarray, H_carved_resized: np.ndarray):
     return fig
 
 
-def plot_losses(losses: np.ndarray, ax=None):
-    ax = ax or plt.gca()
+def plot_loss_history(losses: list[dict]):
+    fig, ax = plt.subplots(figsize=(10, 4))
+    for k in losses[0]["penalties"].keys():
+        ax.plot([i["penalties"][k] for i in losses], label=str(k))
+    ax.plot([i["divergence"] for i in losses], label="divergence")
+    ax.plot([i["full"] for i in losses], label="full")
+
     ax.set_xlabel("iter")
     ax.set_ylabel("losses")
-    for i, loss_component in enumerate(losses):
-        ax.plot(loss_component, label=f"loss {i}")
     ax.set_yscale("log")
     ax.legend()
+
+    return fig
 
 
 def plot_warp(
@@ -104,7 +109,7 @@ def plot_gain(
 def plot_H(H: np.ndarray, split_idx=None, ax=None):
     ax = ax or plt.gca()
     im = imshow_highlight_zero(H, ax, cmap=CMAP, aspect="auto", origin="lower")
-    
+
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
             COLOR = "black"
