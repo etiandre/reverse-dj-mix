@@ -187,7 +187,7 @@ class L1(Penalty):
     """
 
     def compute(self, X: ArrayType) -> float:
-        return np.sum(np.abs(X))
+        return float(np.mean(np.abs(X)))
 
     def grad_neg(self, X: ArrayType):
         return 0
@@ -210,7 +210,7 @@ class L2(Penalty):
     """
 
     def compute(self, X: ArrayType):
-        return float(np.sum(X**2))
+        return float(np.mean(X**2))
 
     def grad_neg(self, X: ArrayType):
         return 0
@@ -258,7 +258,7 @@ class SmoothGain(Penalty):
             for j in range(1, X.shape[1] - 1):
                 ret[i, j] = 2 * (X[i, j - 1] + X[i, j + 1])
 
-        return dense_to_sparse(ret / (X.shape[0] * X.shape[1] - 1))
+        return dense_to_sparse(ret / (X.shape[0] * (X.shape[1] - 1)))
 
     def grad_pos(self, X: ArrayType):
         return 4 / (X.shape[0] * X.shape[1] - 1) * X

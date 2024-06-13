@@ -33,9 +33,9 @@ CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
 PENALTIES = [
-    # (modular_nmf.L1(), 10000),
-    # (modular_nmf.SmoothGain(), 1e-2)
-    (modular_nmf.VirtanenTemporalContinuity(), 1)
+    (modular_nmf.L1(), 9643.097400544748),
+    (modular_nmf.SmoothGain(), 1572.5437219589044)
+    # (modular_nmf.VirtanenTemporalContinuity(), 1)
 ]
 
 # stop conditions
@@ -175,19 +175,19 @@ def worker(mix_name, mix):
             RESULTS_DIR / f"{date}/{mix_name}/loss.png"
         )
 
-        logger.info("Reconstructing tracks")
-        for i, y in enumerate(learner.reconstruct_tracks()):
-            util.write_mp3(
-                RESULTS_DIR / f"{date}/{mix_name}/reconstructed-{i:03d}.mp3",
-                FS,
-                y,
-            )
-        logger.info("Reconstructing mix")
-        util.write_mp3(
-            RESULTS_DIR / f"{date}/{mix_name}/reconstructed-mix.mp3",
-            FS,
-            learner.reconstruct_mix(),
-        )
+        # logger.info("Reconstructing tracks")
+        # for i, y in enumerate(learner.reconstruct_tracks()):
+        #     util.write_mp3(
+        #         RESULTS_DIR / f"{date}/{mix_name}/reconstructed-{i:03d}.mp3",
+        #         FS,
+        #         y,
+        #     )
+        # logger.info("Reconstructing mix")
+        # util.write_mp3(
+        #     RESULTS_DIR / f"{date}/{mix_name}/reconstructed-mix.mp3",
+        #     FS,
+        #     learner.reconstruct_mix(),
+        # )
 
         tick_reconstruct = time.time()
 
