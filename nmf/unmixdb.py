@@ -72,7 +72,11 @@ class Mix:
                     )
                 else:
                     g = 0
-                gain[i] = g
+                # divide gain by number of tracks. Mixes have been generated with sox -m, cf. sox(1):
+                # Unlike the other methods, ‘mix' combining has the potential to cause clipping in the combiner if no balancing is performed.  In this case, if manual volume adjustments are not  given,  SoX  will
+                # try  to  ensure  that clipping does not occur by automatically adjusting the volume (amplitude) of each input signal by a factor of ¹/n, where n is the number of input files.  If this results in
+                # audio that is too quiet or otherwise unbalanced then the input file volumes can be set manually as described above. Using the norm effect on the mix is another alternative.
+                gain[i] = g / len(self.tracks)
             ret.append(gain)
         return np.stack(ret).T
 

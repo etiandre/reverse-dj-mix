@@ -33,15 +33,15 @@ CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
 PENALTIES = [
-    (modular_nmf.L1(), 9643.097400544748),
-    (modular_nmf.SmoothGain(), 1572.5437219589044)
+    # (modular_nmf.L1(), 9643.097400544748),
+    # (modular_nmf.SmoothGain(), 1572.5437219589044)
     # (modular_nmf.VirtanenTemporalContinuity(), 1)
 ]
 
 # stop conditions
 DLOSS_MIN = -np.inf
 LOSS_MIN = -np.inf
-ITER_MAX = 2000
+ITER_MAX = 3000
 
 ## other stuff
 # logging

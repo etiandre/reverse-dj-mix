@@ -48,15 +48,6 @@ class GainEstimator(enum.Enum):
     def MAX(model):
         return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.max(Hi, axis=0)))
 
-    @enum.member
-    @staticmethod
-    def RELSUM(model):
-        ret = []
-        for left, right in zip(model.split_idx, model.split_idx[1:]):
-            H_track = model.H[left:right, :]
-            ret.append(np.sqrt(np.sum(H_track, axis=0) / np.sum(model.H, axis=0)))
-        return np.array(ret).T
-
 
 class WarpEstimator(enum.Enum):
     @enum.member
@@ -158,7 +149,6 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
     rough_start_idx = max(longest_slice.start - longest_slice_len // 2, 0)
     rough_stop_idx = min(longest_slice.stop + longest_slice_len // 2, len(gain) - 1)
     longest_slice = slice(rough_start_idx, rough_stop_idx)
-    print(longest_slice)
     (
         fadein_start,
         fadein_stop,
