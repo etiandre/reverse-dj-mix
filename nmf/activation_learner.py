@@ -25,9 +25,6 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     return melspec, spec
 
 
-ENERGY_MIN = 1e-1
-
-
 class ActivationLearner:
     def __init__(
         self,
@@ -41,6 +38,7 @@ class ActivationLearner:
         stft_win_func: str = "hann",
         n_mels: int = 512,
         polyphony_penalty: float = 0,
+        min_power: float = 1e-1,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
@@ -91,12 +89,13 @@ class ActivationLearner:
         else:
             W = np.concatenate(input_powspecs[:-1], axis=1)
 
-        # remove columns of W with too little energy to prevent explosion in NMF
-        W[:, W.mean(axis=0) < ENERGY_MIN] = 0
+        # fill the columns of W with too little power with noise to prevent explosion in NMF
+        low_frames = W.mean(axis=0) < min_power
+        W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
 
         # normalize W and V
         self.W_norm_factor = W.sum(axis=0, keepdims=True)
-        self.W_norm_factor[self.W_norm_factor == 0] = 1
+        assert not np.any(self.W_norm_factor == 0)
         self.V_norm_factor = V.sum()
         W = W / self.W_norm_factor
         V = V / self.V_norm_factor
