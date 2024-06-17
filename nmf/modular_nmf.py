@@ -51,25 +51,37 @@ class Penalty(abc.ABC):
         pass
 
 
+class Postprocessor(abc.ABC):
+    @abc.abstractmethod
+    def process(self, X: ArrayType) -> ArrayType:
+        pass
+
+
 class NMF:
     def __init__(
         self,
         divergence: Divergence,
         penalties_W: list[tuple[Penalty, float]],
         penalties_H: list[tuple[Penalty, float]],
+        postprocessors_H: list[tuple[Postprocessor, float]],
     ):
         self.divergence = divergence
         self.penalties_W = penalties_W
         self.penalties_H = penalties_H
+        self.pp_H = postprocessors_H
 
-    def iterate_H(self, V: ArrayType, W: ArrayType, H: ArrayType) -> ArrayType:
+    def iterate_H(
+        self, V: ArrayType, W: ArrayType, H: ArrayType, pp_strength: float
+    ) -> ArrayType:
         Vhat = W @ H
+
         num = self.divergence.mu_dH_num(W, H, V, Vhat)
         dem = self.divergence.mu_dH_dem(W, H, V, Vhat)
         assert not np.any(np.isnan(num))
         assert not np.any(np.isnan(dem))
         assert np.all(num >= 0)
         assert np.all(dem > 0)
+
         for penalty, lambda_ in self.penalties_H:
             num += lambda_ * penalty.grad_neg(H)
             dem += lambda_ * penalty.grad_pos(H)
@@ -77,10 +89,18 @@ class NMF:
             assert not np.any(np.isnan(dem))
             assert np.all(num >= 0)
             assert np.all(dem > 0)
+
         dH = num / dem
         assert not np.any(np.isnan(dH))
         assert np.all(dH >= 0)
-        return H * dH
+
+        H = H * dH
+        if pp_strength != 0:
+            for pp, lambda_ in self.pp_H:
+                a = lambda_ * pp_strength
+                H = a * pp.process(H) + (1 - a) * H
+
+        return H
 
     def iterate_W(self, V: ArrayType, W: ArrayType, H: ArrayType) -> ArrayType:
         Vhat = W @ H
@@ -153,7 +173,7 @@ class BetaDivergence(Divergence):
                 / self.beta
                 / (self.beta - 1)
             )
-        return float(np.mean(ret))
+        return float(np.sum(ret))
 
     def mu_dH_num(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
         return W.T @ (V * Vhat ** (self.beta - 2))
@@ -184,10 +204,13 @@ class L1(Penalty):
     Since the function is non-differentiable at zero, its sub-gradient can be used instead:
 
         dR/dX = sign(X)
+
+    And because X >= 0:
+        dR/dX = 1
     """
 
     def compute(self, X: ArrayType) -> float:
-        return float(np.mean(np.abs(X)))
+        return float(np.sum(np.abs(X)))
 
     def grad_neg(self, X: ArrayType):
         return 0
@@ -210,7 +233,7 @@ class L2(Penalty):
     """
 
     def compute(self, X: ArrayType):
-        return float(np.mean(X**2))
+        return float(np.sum(X**2))
 
     def grad_neg(self, X: ArrayType):
         return 0
@@ -219,22 +242,22 @@ class L2(Penalty):
         return X
 
 
-class FevotteSmooth(Penalty):
-    """
-    Fevotte, Cedric. « Majorization-Minimization Algorithm for Smooth Itakura-Saito
-    Nonnegative Matrix Factorization ». In 2011 IEEE International Conference on
-    Acoustics, Speech and Signal Processing (ICASSP), 1980-83. Prague, Czech Republic:
-    IEEE, 2011. https://doi.org/10.1109/ICASSP.2011.5946898.
-    """
+# class FevotteSmooth(Penalty):
+#     """
+#     Fevotte, Cedric. « Majorization-Minimization Algorithm for Smooth Itakura-Saito
+#     Nonnegative Matrix Factorization ». In 2011 IEEE International Conference on
+#     Acoustics, Speech and Signal Processing (ICASSP), 1980-83. Prague, Czech Republic:
+#     IEEE, 2011. https://doi.org/10.1109/ICASSP.2011.5946898.
+#     """
 
-    def compute(self, X: ArrayType) -> float:
-        raise NotImplementedError
+#     def compute(self, X: ArrayType) -> float:
+#         raise NotImplementedError
 
-    def grad_neg(self, X: ArrayType):
-        raise NotImplementedError
+#     def grad_neg(self, X: ArrayType):
+#         raise NotImplementedError
 
-    def grad_pos(self, X: ArrayType):
-        raise NotImplementedError
+#     def grad_pos(self, X: ArrayType):
+#         raise NotImplementedError
 
 
 class SmoothGain(Penalty):
@@ -250,18 +273,19 @@ class SmoothGain(Penalty):
     """
 
     def compute(self, X: ArrayType) -> float:
-        return float(np.mean(np.diff(X, axis=1) ** 2))
+        return float(np.sum(np.diff(X, axis=1) ** 2))
 
     def grad_neg(self, X: ArrayType):
+        T, K = X.shape
         ret = np.zeros_like(X)
-        for i in range(X.shape[0]):
-            for j in range(1, X.shape[1] - 1):
+        for i in range(T):
+            for j in range(1, K - 1):
                 ret[i, j] = 2 * (X[i, j - 1] + X[i, j + 1])
 
-        return dense_to_sparse(ret / (X.shape[0] * (X.shape[1] - 1)))
+        return dense_to_sparse(ret)
 
     def grad_pos(self, X: ArrayType):
-        return 4 / (X.shape[0] * X.shape[1] - 1) * X
+        return 4 * X
 
 
 class VirtanenTemporalContinuity(Penalty):
@@ -272,12 +296,11 @@ class VirtanenTemporalContinuity(Penalty):
     """
 
     def compute(self, X: ArrayType):
-        T, K = X.shape
         std = np.std(X, axis=1)
         diffs = np.diff(X, axis=1)
         first_sum = np.sum(diffs**2, axis=1)
         second_sum = np.sum(1 / std**2 * first_sum)
-        return second_sum / T / K
+        return second_sum
 
     def grad_neg(self, X: ArrayType):
         T, K = X.shape
@@ -300,3 +323,33 @@ class VirtanenTemporalContinuity(Penalty):
             for tau in range(1, K - 1):
                 ret[t, tau] = X[t, tau] / sums_sq[t]
         return dense_to_sparse(4 * K * ret)
+
+
+class SmoothDiago(Penalty):
+    def compute(self, X: ArrayType) -> float:
+        return float(np.sum((X[:-1, :-1] - X[1:, 1:]) ** 2))
+
+    def grad_neg(self, X: ArrayType) -> ArrayType | float:
+        T, K = X.shape
+        grad_H_neg = np.zeros_like(X)
+        for i in range(1, T - 1):
+            for j in range(1, K - 1):
+                grad_H_neg[i, j] = 2 * (X[i + 1, j + 1] + X[i - 1, j - 1])
+        return dense_to_sparse(grad_H_neg)
+
+    def grad_pos(self, X: ArrayType) -> ArrayType | float:
+        return dense_to_sparse(4 * X)
+
+
+class PolyphonyLimit(Postprocessor):
+    def __init__(self, limit: int):
+        self.limit = limit  # max activations in one column
+
+    def process(self, X: ArrayType):
+        X_ = X.copy()
+        # Calculate the cutoff value for each column, allowing at most 'self.limit' activations
+        colCutoff = -np.partition(-X, self.limit, 0)[self.limit, :]
+        # Suppress the values below the cutoff to zero
+        X_[X <= colCutoff[None, :]] = 0
+        # Convert the dense matrix to sparse format and return
+        return dense_to_sparse(X_)

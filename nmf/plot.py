@@ -23,7 +23,7 @@ def imshow_highlight_zero(X: np.ndarray, ax=None, **kwargs):
     ax = ax or plt.gca()
     X_ = X.copy()
     X_[X_ == 0] = np.nan
-    ax.imshow(X_, **kwargs)
+    return ax.imshow(X_, **kwargs)
 
 
 def plot_carve_resize(H_carved: np.ndarray, H_carved_resized: np.ndarray):

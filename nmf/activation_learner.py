@@ -4,10 +4,11 @@ import scipy.ndimage
 import scipy.signal
 import librosa
 import logging
-from modular_nmf import Divergence, Penalty, NMF
+from modular_nmf import Divergence, Penalty, Postprocessor, NMF
+import abc
 
 logger = logging.getLogger(__name__)
-from common import sparse_to_dense, dense_to_sparse
+from common import ArrayType, sparse_to_dense, dense_to_sparse
 
 
 def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
@@ -34,11 +35,11 @@ class ActivationLearner:
         hop_size: float,
         divergence: Divergence,
         penalties: list[tuple[Penalty, float]],
+        postprocessors: list[tuple[Postprocessor, float]],
         additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
-        polyphony_penalty: float = 0,
-        min_power: float = 1e-1,
+        min_power_dB: float = -40,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
@@ -50,7 +51,6 @@ class ActivationLearner:
         self.inputs = inputs
         self.n_mels = n_mels
         self.fs = fs
-        self.polyphony_penalty = polyphony_penalty
         self.win_size = win_size
         self.hop_size = hop_size
         self.stft_win_func = stft_win_func
@@ -90,7 +90,8 @@ class ActivationLearner:
             W = np.concatenate(input_powspecs[:-1], axis=1)
 
         # fill the columns of W with too little power with noise to prevent explosion in NMF
-        low_frames = W.mean(axis=0) < min_power
+        low_frames = W.mean(axis=0) < 10 ** (min_power_dB / 20)
+        print(W.mean(axis=0))
         W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
 
         # normalize W and V
@@ -110,9 +111,9 @@ class ActivationLearner:
 
         self._V, self._W, self._H = V, W, H
 
-        self.nmf = NMF(divergence, [], penalties)
+        self.nmf = NMF(divergence, [], penalties, postprocessors)
 
-    def iterate(self, regulation_strength: float = 1.0):
+    def iterate(self, pp_strength: float):
         if self.learn_add:
             # TODO: this is very unefficient
             # save everything except Wa
@@ -125,20 +126,10 @@ class ActivationLearner:
                 self._W[:, self.split_idx[-2] : self.split_idx[-1]], 0, 1
             )
         else:
-            self._H = self.nmf.iterate_H(self._V, self._W, self._H)
+            self._H = self.nmf.iterate_H(self._V, self._W, self._H, pp_strength)
 
-        # TODO make this a bit more generic
-        if self.polyphony_penalty > 0:
-            H = sparse_to_dense(self._H)
-            H_ = H.copy()
-            poly_limit = 1  # maximum simultaneous activations in one column
-            colCutoff = -np.partition(-H, poly_limit, 0)[poly_limit, :]
-            H_[H_ < colCutoff[None, :]] *= 1 - self.polyphony_penalty
-            H = (1 - regulation_strength) * H + regulation_strength * H_
-            self._H = dense_to_sparse(H)
-
-        # TODO: clip efficiently
-        # self._H[self._H > 1e3] = 1e3
+        # TODO: deduce how to clip given the normalization. Can i even clip ?
+        # self._H[self._H  > 1] = 1
 
         # Calculate loss
         full_loss, losses = self.nmf.loss(self._V, self._W, self._H)

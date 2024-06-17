@@ -1,26 +1,25 @@
-from pathlib import Path
-import numpy as np
-import pydub
-import matplotlib.pyplot as plt
-import librosa
-from pprint import pprint
-import scipy.ndimage
-import scipy.signal
-import logging
-import itertools
-import sparse
 import datetime
+import itertools
+import logging
 import os
 import pickle
 import time
+from pathlib import Path
+from pprint import pprint
+
 import joblib
+import librosa
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 
+import activation_learner
+import carve
+import modular_nmf
+import param_estimator
+import plot
+from common import dense_to_sparse
 from unmixdb import UnmixDB
-from abcdj import ABCDJ
-import activation_learner, carve, plot, param_estimator, util, modular_nmf
-
-from common import dense_to_sparse, sparse_to_dense
-
 
 # configuration
 # =============
@@ -33,19 +32,22 @@ CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
 PENALTIES = [
-    # (modular_nmf.L1(), 9643.097400544748),
-    # (modular_nmf.SmoothGain(), 1572.5437219589044)
+    (modular_nmf.SmoothDiago(), 10000),
+    # (modular_nmf.L1(), 10),
+    # (modular_nmf.SmoothGain(), 10),
     # (modular_nmf.VirtanenTemporalContinuity(), 1)
 ]
-
+POSTPROCESSORS = [
+    # (modular_nmf.PolyphonyLimit(1), 0.1)
+]
+PP_STRENGTH = 1
 # stop conditions
 DLOSS_MIN = -np.inf
 LOSS_MIN = -np.inf
 ITER_MAX = 3000
-
 ## other stuff
 # logging
-PLOT_NMF_EVERY = 500
+PLOT_NMF_EVERY = 600
 LOG_NMF_EVERY = 100
 # paths
 RESULTS_DIR = Path("/data5/anasynth_nonbp/andre/reverse-dj-mix/results")
@@ -72,6 +74,8 @@ unmixdb = UnmixDB(UNMIXDB_PATH)
 def worker(mix_name, mix):
     results = {}
     os.makedirs(RESULTS_DIR / f"{date}/{mix_name}")
+    sns.set_theme("paper")
+
     # setup logging
     logger = logging.getLogger(mix_name)
     logger.setLevel(logging.DEBUG)
@@ -99,7 +103,8 @@ def worker(mix_name, mix):
         input_paths = [
             unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
         ] + [mix.audio_path]
-        pprint(input_paths)
+        for i in input_paths:
+            logger.info(f"input path: {i}")
 
         tick_init = time.time()
 
@@ -123,6 +128,7 @@ def worker(mix_name, mix):
                 hop_size=hop_size,
                 divergence=DIVERGENCE,
                 penalties=PENALTIES,
+                postprocessors=POSTPROCESSORS,
             )
 
             # carve and resize H from previous round
@@ -142,7 +148,7 @@ def worker(mix_name, mix):
             last_loss = np.inf
             loss_history = []
             for i in itertools.count():
-                loss, loss_components = learner.iterate()
+                loss, loss_components = learner.iterate(PP_STRENGTH)
                 dloss = abs(last_loss - loss)
                 last_loss = loss
                 loss_history.append(loss_components)
@@ -163,9 +169,7 @@ def worker(mix_name, mix):
             previous_split_idx = learner.split_idx
 
         tick_nmf = time.time()
-        results["H"] = learner.H
         results["loss"] = loss_components
-        results["loss_history"] = loss_history
 
         # plot NMF
         plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix_name}/nmf.png")
@@ -197,76 +201,110 @@ def worker(mix_name, mix):
         tau = np.arange(0, learner.V.shape[1]) * hop_size
         real_gain = mix.get_track_gain(tau)
         real_warp = mix.get_track_warp(tau)
-        results["real_gain"] = real_gain
-        results["real_warp"] = real_warp
+        results["gain"] = {}
+        results["warp"] = {}
+        # results["gain"]["real"] = real_gain
+        # results["warp"]["real"] = real_warp
 
+        GAIN_ESTOR = param_estimator.GainEstimator.SUM
+        WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
         # estimate gain
-        results["est_gain"] = {}
-        for estimator in param_estimator.GainEstimator:
-            logger.info(f"Estimating gain with method {estimator}")
-            est_gain = estimator.value(learner)
-
-            fig = plt.figure()
-            plot.plot_gain(tau, est_gain, real_gain)
-            fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{estimator}.png")
-            results["est_gain"][str(estimator)] = est_gain
+        logger.info(f"Estimating gain with method {GAIN_ESTOR}")
+        est_gain = GAIN_ESTOR.value(learner)
+        # results["gain"]["est"] = est_gain
+        results["gain"]["err"] = param_estimator.error(est_gain, real_gain)
+        fig = plt.figure()
+        plot.plot_gain(tau, est_gain, real_gain)
+        fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{GAIN_ESTOR}.png")
 
         # estimate warp
-        results["est_warp"] = {}
-        for estimator in param_estimator.WarpEstimator:
-            logger.info(f"Estimating warp with method {estimator}")
-            est_warp = estimator.value(learner)
-
-            fig = plt.figure()
-            plot.plot_warp(tau, est_warp, real_warp)
-            fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{estimator}.png")
-
-            results["est_warp"][str(estimator)] = est_warp
+        logger.info(f"Estimating warp with method {WARP_ESTOR}")
+        est_warp = WARP_ESTOR.value(learner)
+        # results["warp"]["est"] = est_warp
+        results["warp"]["err"] = param_estimator.error(est_warp, real_warp)
+        fig = plt.figure()
+        plot.plot_warp(tau, est_warp, real_warp)
+        fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{WARP_ESTOR}.png")
 
         # estimate high params using all estimator combos
-        results["highparams"] = [{}, {}, {}]
+        fill = [np.nan] * 3
+        results["track_start"] = {
+            "real": fill,
+            "est": fill,
+            "err": fill,
+        }
+        results["fadein_start"] = {
+            "real": fill,
+            "est": fill,
+            "err": fill,
+        }
+        results["fadein_stop"] = {
+            "real": fill,
+            "est": fill,
+            "err": fill,
+        }
+        results["fadeout_start"] = {
+            "real": fill,
+            "est": fill,
+            "err": fill,
+        }
+        results["fadeout_stop"] = {
+            "real": fill,
+            "est": fill,
+            "err": fill,
+        }
+
         for i in range(3):
-            ret = {}
-            ret["real"] = {}
-            ret["real"]["track_start"] = mix.tracks[i]["start"]
-            ret["real"]["fadein_start"] = mix.tracks[i]["fadein"][0]
-            ret["real"]["fadein_stop"] = mix.tracks[i]["fadein"][1]
-            ret["real"]["fadeout_start"] = mix.tracks[i]["fadeout"][0]
-            ret["real"]["fadeout_stop"] = mix.tracks[i]["fadeout"][1]
+            real_track_start = mix.tracks[i]["start"]
+            real_fadein_start = mix.tracks[i]["fadein"][0]
+            real_fadein_stop = mix.tracks[i]["fadein"][1]
+            real_fadeout_start = mix.tracks[i]["fadeout"][0]
+            real_fadeout_stop = mix.tracks[i]["fadeout"][1]
 
-            ret["est"] = {}
-            for (g_estor, est_gain), (
-                w_estor,
-                est_warp,
-            ) in itertools.product(
-                results["est_gain"].items(), results["est_warp"].items()
-            ):
-                logger.info(
-                    f"Estimating highparams for track {i} with {g_estor} and {w_estor}"
-                )
-                (
-                    est_track_start,
-                    est_fadein_start,
-                    est_fadein_stop,
-                    est_fadeout_start,
-                    est_fadeout_stop,
-                    fig,
-                ) = param_estimator.estimate_highparams(
-                    tau, est_gain[:, i], est_warp[:, i], plot=True
-                )
-                fig.savefig(
-                    RESULTS_DIR
-                    / f"{date}/{mix_name}/highparams-{i}-{g_estor}-{w_estor}.png",
-                )
-                estor = str(g_estor) + " " + str(w_estor)
-                ret["est"][estor] = {}
-                ret["est"][estor]["track_start"] = est_track_start
-                ret["est"][estor]["fadein_start"] = est_fadein_start
-                ret["est"][estor]["fadein_stop"] = est_fadein_stop
-                ret["est"][estor]["fadeout_start"] = est_fadeout_start
-                ret["est"][estor]["fadeout_stop"] = est_fadeout_stop
-                results["highparams"][i].update(ret)
+            results["track_start"]["real"][i] = real_track_start
+            results["fadein_start"]["real"][i] = real_fadein_start
+            results["fadein_stop"]["real"][i] = real_fadein_stop
+            results["fadeout_start"]["real"][i] = real_fadeout_start
+            results["fadeout_stop"]["real"][i] = real_fadeout_stop
 
+            logger.info(
+                f"Estimating highparams for track {i} with {GAIN_ESTOR} and {WARP_ESTOR}"
+            )
+            (
+                est_track_start,
+                est_fadein_start,
+                est_fadein_stop,
+                est_fadeout_start,
+                est_fadeout_stop,
+                fig,
+            ) = param_estimator.estimate_highparams(
+                tau, est_gain[:, i], est_warp[:, i], plot=True
+            )
+            fig.savefig(
+                RESULTS_DIR
+                / f"{date}/{mix_name}/highparams-{i}-{GAIN_ESTOR}-{WARP_ESTOR}.png",
+            )
+            results["track_start"]["est"][i] = est_track_start
+            results["fadein_start"]["est"][i] = est_fadein_start
+            results["fadein_stop"]["est"][i] = est_fadein_stop
+            results["fadeout_start"]["est"][i] = est_fadeout_start
+            results["fadeout_stop"]["est"][i] = est_fadeout_stop
+
+            results["track_start"]["err"][i] = param_estimator.error(
+                est_track_start, real_track_start
+            )
+            results["fadein_start"]["err"][i] = param_estimator.error(
+                est_fadein_start, real_track_start
+            )
+            results["fadein_stop"]["err"][i] = param_estimator.error(
+                est_fadein_stop, real_track_start
+            )
+            results["fadeout_start"]["err"][i] = param_estimator.error(
+                est_fadeout_start, real_track_start
+            )
+            results["fadeout_stop"]["err"][i] = param_estimator.error(
+                est_fadeout_stop, real_track_start
+            )
         tick_estimation = time.time()
 
         # log times

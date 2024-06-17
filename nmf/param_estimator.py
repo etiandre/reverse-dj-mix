@@ -18,7 +18,7 @@ def rel_error(est: np.ndarray, real: np.ndarray):
     real = np.array(real)
     mask = ~np.isnan(est) & ~np.isnan(real)
     mre = np.mean(np.abs(est[mask] - real[mask]) / np.abs(real[mask]))
-    return mre
+    return float(mre)
 
 
 def error(est: np.ndarray, real: np.ndarray):
@@ -26,7 +26,7 @@ def error(est: np.ndarray, real: np.ndarray):
     real = np.array(real)
     mask = ~np.isnan(est) & ~np.isnan(real)
     abs_error = np.mean(np.abs(est[mask] - real[mask]))
-    return abs_error
+    return float(abs_error)
 
 
 def _apply_Hi(model: ActivationLearner, fn: Callable):
@@ -43,10 +43,10 @@ class GainEstimator(enum.Enum):
     def SUM(model):
         return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.sum(Hi, axis=0)))
 
-    @enum.member
-    @staticmethod
-    def MAX(model):
-        return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.max(Hi, axis=0)))
+    # @enum.member
+    # @staticmethod
+    # def MAX(model):
+    #     return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.max(Hi, axis=0)))
 
 
 class WarpEstimator(enum.Enum):
@@ -55,10 +55,10 @@ class WarpEstimator(enum.Enum):
     def CENTER_OF_MASS(model):
         return _apply_Hi(model, fn=center_of_mass_columns)
 
-    @enum.member
-    @staticmethod
-    def ARGMAX(model):
-        return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0))
+    # @enum.member
+    # @staticmethod
+    # def ARGMAX(model):
+    #     return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0))
 
 
 def ideal_gain(tau, tau0, a, b, c, g_max):

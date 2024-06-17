@@ -35,7 +35,7 @@ FS = 22050
 NMELS = 256
 
 
-def run_learner(mix_name, mix, hop_size, beta, l1_fac, smoothgain_fac):
+def run_learner(mix_name, mix, hop_size, divergence, penalties):
     logger = logging.getLogger(mix_name)
     logger.setLevel(logging.DEBUG)
     logger.info(f"Starting work on {mix_name}")
@@ -56,11 +56,9 @@ def run_learner(mix_name, mix, hop_size, beta, l1_fac, smoothgain_fac):
         n_mels=NMELS,
         win_size=win_size,
         hop_size=hop_size,
-        divergence=modular_nmf.BetaDivergence(beta),
-        penalties=[
-            (modular_nmf.L1(), l1_fac),
-            (modular_nmf.SmoothGain(), smoothgain_fac),
-        ],
+        penalties=penalties,
+        divergence=divergence,
+        postprocessors=[],
     )
 
     # iterate
@@ -68,7 +66,7 @@ def run_learner(mix_name, mix, hop_size, beta, l1_fac, smoothgain_fac):
     last_loss = np.inf
     loss_history = []
     for i in itertools.count():
-        loss, loss_components = learner.iterate()
+        loss, loss_components = learner.iterate(0)
         dloss = abs(last_loss - loss)
         last_loss = loss
         loss_history.append(loss_components)
@@ -115,13 +113,20 @@ def objective(trial: optuna.trial.Trial):
     hop_size = 2
 
     beta = 0
-    l1_fac = trial.suggest_float("l1_fac", 0, 10000)
-    smoothgain_fac = trial.suggest_float("smoothgain_fac", 0, 10000)
+    l1_fac = trial.suggest_float("l1_fac", 0, 1e30)
+    smoothgain_fac = trial.suggest_float("smoothgain_fac", 0, 1e30)
+    smoothdiago_fac = trial.suggest_float("smoothdiago_fac", 0, 1e30)
 
+    divergence = modular_nmf.BetaDivergence(beta)
+    penalties = [
+        (modular_nmf.L1(), l1_fac),
+        (modular_nmf.SmoothGain(), smoothgain_fac),
+        (modular_nmf.SmoothDiago(), smoothdiago_fac),
+    ]
     mix_name = "set275mix3-none-none-28.mp3"
     mix = unmixdb.mixes[mix_name]
     try:
-        err_gain = run_learner(mix_name, mix, hop_size, beta, l1_fac, smoothgain_fac)
+        err_gain = run_learner(mix_name, mix, hop_size, divergence, penalties)
         return err_gain
     except Exception as e:
         return None
@@ -129,7 +134,7 @@ def objective(trial: optuna.trial.Trial):
 
 study = optuna.create_study(
     storage="sqlite:///db.sqlite3",
-    study_name="pouet0",
+    study_name="pouet1",
     load_if_exists=True,
 )  # Create a new study.
 study.optimize(
