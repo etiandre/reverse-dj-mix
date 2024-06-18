@@ -1,7 +1,7 @@
 import abc
 
 import numpy as np
-from numba import jit
+
 from common import ArrayType, dense_to_sparse
 
 EPSILON = np.finfo(np.float32).eps
@@ -13,25 +13,25 @@ class Divergence(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def mu_dH_num(
+    def grad_H_neg(
         self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType
     ) -> ArrayType | float:
         pass
 
     @abc.abstractmethod
-    def mu_dH_dem(
+    def grad_H_pos(
         self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType
     ) -> ArrayType | float:
         pass
 
     @abc.abstractmethod
-    def mu_dW_num(
+    def grad_W_neg(
         self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType
     ) -> ArrayType | float:
         pass
 
     @abc.abstractmethod
-    def mu_dW_dem(
+    def grad_W_pos(
         self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType
     ) -> ArrayType | float:
         pass
@@ -75,8 +75,8 @@ class NMF:
     ) -> ArrayType:
         Vhat = W @ H
 
-        num = self.divergence.mu_dH_num(W, H, V, Vhat)
-        dem = self.divergence.mu_dH_dem(W, H, V, Vhat)
+        num = self.divergence.grad_H_neg(W, H, V, Vhat)
+        dem = self.divergence.grad_H_pos(W, H, V, Vhat)
         assert not np.any(np.isnan(num))
         assert not np.any(np.isnan(dem))
         assert np.all(num >= 0)
@@ -104,8 +104,8 @@ class NMF:
 
     def iterate_W(self, V: ArrayType, W: ArrayType, H: ArrayType) -> ArrayType:
         Vhat = W @ H
-        num = self.divergence.mu_dW_num(W, H, V, Vhat)
-        dem = self.divergence.mu_dW_dem(W, H, V, Vhat)
+        num = self.divergence.grad_W_neg(W, H, V, Vhat)
+        dem = self.divergence.grad_W_pos(W, H, V, Vhat)
         assert not np.any(np.isnan(num))
         assert not np.any(np.isnan(dem))
         assert np.all(num >= 0)
@@ -128,22 +128,25 @@ class NMF:
         losses["penalties_W"] = {}
         full_loss = 0
 
+        T, K = H.shape
+        M, _ = V.shape  # M, K
+
         Vhat = W @ H
 
-        full_loss = self.divergence.compute(V, Vhat)
+        full_loss = self.divergence.compute(V, Vhat) / M / K
         assert not np.any(np.isnan(full_loss))
         losses["divergence"] = full_loss
 
         for penalty, lambda_ in self.penalties_H:
             loss = lambda_ * penalty.compute(H)
             assert not np.any(np.isnan(loss))
-            losses["penalties_H"][str(penalty.__class__)] = loss
+            losses["penalties_H"][str(penalty.__class__)] = loss / T / K
             full_loss += loss
 
         for penalty, lambda_ in self.penalties_W:
             loss = lambda_ * penalty.compute(W)
             assert not np.any(np.isnan(loss))
-            losses["penalties_W"][str(penalty.__class__)] = loss
+            losses["penalties_W"][str(penalty.__class__)] = loss / T / K
             full_loss += loss
 
         losses["full"] = full_loss
@@ -155,6 +158,20 @@ class NMF:
 
 
 class BetaDivergence(Divergence):
+    """
+    Compute the Beta Divergence between two matrices V and Vhat.
+
+    The Beta Divergence is defined as:
+
+    For beta = 0:
+        D_beta(V, Vhat) = V / Vhat - log(V / Vhat) - 1
+    For beta = 1:
+        D_beta(V, Vhat) = V * (log(V) - log(Vhat)) + (Vhat - V)
+    For other values of beta:
+        D_beta(V, Vhat) = (V^beta + (beta - 1) * Vhat^beta - beta * V * Vhat^(beta - 1))
+                          / (beta * (beta - 1))
+    """
+
     def __init__(self, beta: float):
         self.beta = beta
 
@@ -175,16 +192,16 @@ class BetaDivergence(Divergence):
             )
         return float(np.sum(ret))
 
-    def mu_dH_num(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
+    def grad_H_neg(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
         return W.T @ (V * Vhat ** (self.beta - 2))
 
-    def mu_dH_dem(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
+    def grad_H_pos(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
         return W.T @ Vhat ** (self.beta - 1) + EPSILON
 
-    def mu_dW_num(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
+    def grad_W_neg(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
         return (V * Vhat ** (self.beta - 2)) @ H.T
 
-    def mu_dW_dem(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
+    def grad_W_pos(self, W: ArrayType, H: ArrayType, V: ArrayType, Vhat: ArrayType):
         return Vhat ** (self.beta - 1) @ H.T + EPSILON
 
 
@@ -239,7 +256,7 @@ class L2(Penalty):
         return 0
 
     def grad_pos(self, X: ArrayType):
-        return X
+        return 2 * X
 
 
 # class FevotteSmooth(Penalty):
@@ -287,7 +304,7 @@ class SmoothGain(Penalty):
     def grad_pos(self, X: ArrayType):
         return 4 * X
 
-
+#TODO: weird results. check implementation
 class VirtanenTemporalContinuity(Penalty):
     """
     Monaural Sound Source Separation by Nonnegative Matrix Factorization With Temporal
@@ -326,6 +343,26 @@ class VirtanenTemporalContinuity(Penalty):
 
 
 class SmoothDiago(Penalty):
+    """
+    Smooth diagonal penalty.
+
+    The penalty is calculated as the sum of squared differences between diagonally adjacent elements in the matrix X:
+
+        R(X) = sum_{i=1}^{T-1} sum_{j=1}^{K-1} (X_{i, j} - X_{i+1, j+1})^2
+
+    It encourages smoothness along the diagonal of the matrix.
+
+    Its gradient with respect to X is:
+
+    Negative gradient (excluding edges):
+
+        (grad_neg(R))_{i, j} = 2 * (X_{i+1, j+1} + X_{i-1, j-1})
+
+    Positive gradient:
+
+        (grad_pos(R)) = 4 * X
+    """
+
     def compute(self, X: ArrayType) -> float:
         return float(np.sum((X[:-1, :-1] - X[1:, 1:]) ** 2))
 
@@ -340,8 +377,19 @@ class SmoothDiago(Penalty):
     def grad_pos(self, X: ArrayType) -> ArrayType | float:
         return dense_to_sparse(4 * X)
 
-
 class PolyphonyLimit(Postprocessor):
+    """
+    Postprocessor to limit the number of activations per column in a matrix.
+
+    This class implements a postprocessing step that limits the number of activations
+    in each column of the input matrix `X` to a specified maximum. Activations are defined
+    as non-zero values, and the function suppresses lower values to zero while preserving the
+    highest `limit` number of activations.
+
+    Attributes:
+        limit (int): The maximum number of activations allowed per column.
+    """
+
     def __init__(self, limit: int):
         self.limit = limit  # max activations in one column
 
@@ -351,5 +399,4 @@ class PolyphonyLimit(Postprocessor):
         colCutoff = -np.partition(-X, self.limit, 0)[self.limit, :]
         # Suppress the values below the cutoff to zero
         X_[X <= colCutoff[None, :]] = 0
-        # Convert the dense matrix to sparse format and return
         return dense_to_sparse(X_)

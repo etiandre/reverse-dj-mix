@@ -3,9 +3,9 @@ import itertools
 import logging
 import os
 import pickle
+import random
 import time
 from pathlib import Path
-from pprint import pprint
 
 import joblib
 import librosa
@@ -26,13 +26,13 @@ from unmixdb import UnmixDB
 
 # hyperparams
 FS = 22050
-HOP_SIZES = [1.0]
-OVERLAP_FACTOR = 1
+HOP_SIZES = [2.0]
+OVERLAP_FACTOR = 6
 CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
 PENALTIES = [
-    (modular_nmf.SmoothDiago(), 10000),
+    # (modular_nmf.SmoothDiago(), 10000),
     # (modular_nmf.L1(), 10),
     # (modular_nmf.SmoothGain(), 10),
     # (modular_nmf.VirtanenTemporalContinuity(), 1)
@@ -40,7 +40,8 @@ PENALTIES = [
 POSTPROCESSORS = [
     # (modular_nmf.PolyphonyLimit(1), 0.1)
 ]
-PP_STRENGTH = 1
+PP_STRENGTH = 0
+LOW_POWER_FACTOR = 1e-2
 # stop conditions
 DLOSS_MIN = -np.inf
 LOSS_MIN = -np.inf
@@ -129,6 +130,7 @@ def worker(mix_name, mix):
                 divergence=DIVERGENCE,
                 penalties=PENALTIES,
                 postprocessors=POSTPROCESSORS,
+                low_power_factor=LOW_POWER_FACTOR,
             )
 
             # carve and resize H from previous round
@@ -219,7 +221,7 @@ def worker(mix_name, mix):
 
         # estimate warp
         logger.info(f"Estimating warp with method {WARP_ESTOR}")
-        est_warp = WARP_ESTOR.value(learner)
+        est_warp = WARP_ESTOR.value(learner, hop_size)
         # results["warp"]["est"] = est_warp
         results["warp"]["err"] = param_estimator.error(est_warp, real_warp)
         fig = plt.figure()
@@ -227,31 +229,35 @@ def worker(mix_name, mix):
         fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/{WARP_ESTOR}.png")
 
         # estimate high params using all estimator combos
-        fill = [np.nan] * 3
         results["track_start"] = {
-            "real": fill,
-            "est": fill,
-            "err": fill,
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
+        }
+        results["speed"] = {
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
         }
         results["fadein_start"] = {
-            "real": fill,
-            "est": fill,
-            "err": fill,
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
         }
         results["fadein_stop"] = {
-            "real": fill,
-            "est": fill,
-            "err": fill,
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
         }
         results["fadeout_start"] = {
-            "real": fill,
-            "est": fill,
-            "err": fill,
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
         }
         results["fadeout_stop"] = {
-            "real": fill,
-            "est": fill,
-            "err": fill,
+            "real": [np.nan] * 3,
+            "est": [np.nan] * 3,
+            "err": [np.nan] * 3,
         }
 
         for i in range(3):
@@ -260,12 +266,14 @@ def worker(mix_name, mix):
             real_fadein_stop = mix.tracks[i]["fadein"][1]
             real_fadeout_start = mix.tracks[i]["fadeout"][0]
             real_fadeout_stop = mix.tracks[i]["fadeout"][1]
+            real_speed = mix.tracks[i]["speed"]
 
             results["track_start"]["real"][i] = real_track_start
             results["fadein_start"]["real"][i] = real_fadein_start
             results["fadein_stop"]["real"][i] = real_fadein_stop
             results["fadeout_start"]["real"][i] = real_fadeout_start
             results["fadeout_stop"]["real"][i] = real_fadeout_stop
+            results["speed"]["real"][i] = real_speed
 
             logger.info(
                 f"Estimating highparams for track {i} with {GAIN_ESTOR} and {WARP_ESTOR}"
@@ -276,6 +284,7 @@ def worker(mix_name, mix):
                 est_fadein_stop,
                 est_fadeout_start,
                 est_fadeout_stop,
+                est_speed,
                 fig,
             ) = param_estimator.estimate_highparams(
                 tau, est_gain[:, i], est_warp[:, i], plot=True
@@ -289,6 +298,7 @@ def worker(mix_name, mix):
             results["fadein_stop"]["est"][i] = est_fadein_stop
             results["fadeout_start"]["est"][i] = est_fadeout_start
             results["fadeout_stop"]["est"][i] = est_fadeout_stop
+            results["speed"]["est"][i] = est_speed
 
             results["track_start"]["err"][i] = param_estimator.error(
                 est_track_start, real_track_start
@@ -304,6 +314,9 @@ def worker(mix_name, mix):
             )
             results["fadeout_stop"]["err"][i] = param_estimator.error(
                 est_fadeout_stop, real_track_start
+            )
+            results["speed"]["err"][i] = param_estimator.error(
+                est_speed, real_speed
             )
         tick_estimation = time.time()
 
@@ -335,17 +348,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # filter by no stretch no fx :) :) :)
-    mixes = dict(
-        filter(
-            lambda i: i[1].timestretch == "none" and i[1].fx == "none",
-            unmixdb.mixes.items(),
-        )
-    )
+    # mixes = dict(
+    #     filter(
+    #         lambda i: i[1].timestretch == "none" and i[1].fx == "none",
+    #         unmixdb.mixes.items(),
+    #     )
+    # )
+    mixes = unmixdb.mixes
+    mixitems = list(mixes.items())
+    # random.shuffle(mixitems)
     logging.info(f"Will process {len(mixes)} mixes")
     if args.workers == 1:
-        for mix_name, mix in mixes.items():
+        for mix_name, mix in mixitems:
             worker(mix_name, mix)
     else:
         joblib.Parallel(args.workers, verbose=10)(
-            joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixes.items()
+            joblib.delayed(worker)(mix_name, mix) for mix_name, mix in mixitems
         )

@@ -52,8 +52,8 @@ class GainEstimator(enum.Enum):
 class WarpEstimator(enum.Enum):
     @enum.member
     @staticmethod
-    def CENTER_OF_MASS(model):
-        return _apply_Hi(model, fn=center_of_mass_columns)
+    def CENTER_OF_MASS(model, hop_size: float):
+        return _apply_Hi(model, fn=center_of_mass_columns) * hop_size
 
     # @enum.member
     # @staticmethod
@@ -159,18 +159,18 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
     ) = fit_ideal_gain(tau[longest_slice], gain_norm[longest_slice])
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
-    warp_slope, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
+    speed, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
 
     # calculate track start time
-    track_start = -warp_intercept / warp_slope
+    track_start = -warp_intercept / speed
 
     if plot:
         fig, axes = plt.subplots(2, 1, figsize=(20,6))
         axes[0].plot(tau, gain, label="input", alpha=0.5)
         axes[0].plot(tau, gain_norm, label="filt")
         axes[0].plot(tau, thresh_gain_mask, label="thresh")
-        axes[0].axvline(tau[longest_slice.start])
-        axes[0].axvline(tau[longest_slice.stop])
+        axes[0].axvline(tau[longest_slice.start], linestyle='--')
+        axes[0].axvline(tau[longest_slice.stop], linestyle='--')
         axes[0].plot(
             [fadein_start, fadein_stop, fadeout_start, fadeout_stop],
             [g_min, g_max, g_max, g_min],
@@ -181,7 +181,7 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
 
         axes[1].plot(tau, warp, label="input", alpha=0.5)
         axes[1].plot(tau[mask], warp[mask], label="masked")
-        axes[1].plot(tau, warp_slope * tau + warp_intercept, label="fit")
+        axes[1].plot(tau[mask], speed * tau[mask] + warp_intercept, label="fit")
         axes[1].set_title("warp")
         axes[1].legend()
     else:
@@ -193,5 +193,6 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
         fadein_stop,
         fadeout_start,
         fadeout_stop,
+        speed,
         fig,
     )

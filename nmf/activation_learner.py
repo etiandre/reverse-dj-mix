@@ -17,7 +17,7 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
         n_fft=win_len,
         hop_length=hop_len,
         win_length=win_len,
-        center=False,
+        center=True,
         window=stft_win_func,
     )
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
@@ -39,7 +39,7 @@ class ActivationLearner:
         additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
-        min_power_dB: float = -40,
+        low_power_factor: float = -40,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
@@ -90,10 +90,13 @@ class ActivationLearner:
             W = np.concatenate(input_powspecs[:-1], axis=1)
 
         # fill the columns of W with too little power with noise to prevent explosion in NMF
-        low_frames = W.mean(axis=0) < 10 ** (min_power_dB / 20)
-        print(W.mean(axis=0))
-        W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
-
+        # frames_power = W.sum(axis=0)
+        # low_frames = frames_power / np.max(frames_power) < low_power_factor
+        # print(frames_power / np.max(frames_power))
+        # if np.sum(low_frames) > 0:
+        #     logger.info(f"Filling {np.sum(low_frames)} low frames with noise")
+        # W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
+        W += np.abs(np.random.randn(*W.shape)) * low_power_factor
         # normalize W and V
         self.W_norm_factor = W.sum(axis=0, keepdims=True)
         assert not np.any(self.W_norm_factor == 0)
@@ -149,7 +152,7 @@ class ActivationLearner:
                 n_fft=int(self.fs * self.win_size),
                 hop_length=int(self.fs * self.hop_size),
                 win_length=int(self.fs * self.win_size),
-                center=False,
+                center=True,
                 window=self.stft_win_func,
             )
             ret.append(audio)
@@ -163,7 +166,7 @@ class ActivationLearner:
             n_fft=int(self.fs * self.win_size),
             hop_length=int(self.fs * self.hop_size),
             win_length=int(self.fs * self.win_size),
-            center=False,
+            center=True,
             window=self.stft_win_func,
         )
         return audio

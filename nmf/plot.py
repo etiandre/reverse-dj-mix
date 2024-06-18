@@ -40,9 +40,9 @@ def plot_carve_resize(H_carved: np.ndarray, H_carved_resized: np.ndarray):
 def plot_loss_history(losses: list[dict]):
     fig, ax = plt.subplots(figsize=(10, 4))
     for k in losses[0]["penalties"].keys():
-        ax.plot([i["penalties"][k] for i in losses], label=str(k))
+        ax.plot([i["penalties"][k] for i in losses], label=str(k.__class__))
     ax.plot([i["divergence"] for i in losses], label="divergence")
-    ax.plot([i["full"] for i in losses], label="full")
+    ax.plot([i["full"] for i in losses], "--", label="total")
 
     ax.set_xlabel("iter")
     ax.set_ylabel("losses")
@@ -75,7 +75,7 @@ def plot_warp(
         plot_pos(ground_truth, True)
     ax.legend()
     ax.set_xlabel("mix time (s)")
-    ax.set_ylabel("ref time (s)")
+    ax.set_ylabel("ref frame")
 
 
 def plot_gain(
@@ -112,7 +112,7 @@ def plot_H(H: np.ndarray, split_idx=None, ax=None):
 
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-            COLOR = "black"
+            COLOR = "pink"
             ax.axhline(a - 0.5, color=COLOR, linestyle="--")
             ax.annotate(f"track {track}", (0, (a + b) / 2), color=COLOR)
 
@@ -127,7 +127,7 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
     im = _pow_specshow(W, ax)
     # annotate track boundaries if given
     if split_idx is not None:
-        COLOR = "black"
+        COLOR = "pink"
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
             ax.axvline(a - 0.5, color=COLOR, linestyle="--")
             ax.annotate(f"track {track}", ((a + b) / 2, 1), color=COLOR)
