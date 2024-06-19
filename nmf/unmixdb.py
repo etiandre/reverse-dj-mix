@@ -55,7 +55,7 @@ class Mix:
     def get_track_gain(self, times: np.ndarray):
         ret = []
         for track in self.tracks:
-            gain = np.zeros_like(times)
+            gain = np.zeros_like(times, dtype=float)
             for i, t in enumerate(times):
                 if t < track["fadein"][0]:
                     g = 0
@@ -83,7 +83,7 @@ class Mix:
     def get_track_warp(self, times: np.ndarray):
         ret = []
         for track in self.tracks:
-            position = np.zeros_like(times)
+            position = np.zeros_like(times, dtype=float)
             for i, t in enumerate(times):
                 if t < track["start"]:
                     tau = np.nan

@@ -73,6 +73,10 @@ class NMF:
     def iterate_H(
         self, V: ArrayType, W: ArrayType, H: ArrayType, pp_strength: float
     ) -> ArrayType:
+        assert not np.any(np.isnan(V))
+        assert not np.any(np.isnan(W))
+        assert not np.any(np.isnan(H))
+
         Vhat = W @ H
 
         num = self.divergence.grad_H_neg(W, H, V, Vhat)
@@ -140,13 +144,13 @@ class NMF:
         for penalty, lambda_ in self.penalties_H:
             loss = lambda_ * penalty.compute(H)
             assert not np.any(np.isnan(loss))
-            losses["penalties_H"][str(penalty.__class__)] = loss / T / K
+            losses["penalties_H"][penalty.__class__.__name__] = loss / T / K
             full_loss += loss
 
         for penalty, lambda_ in self.penalties_W:
             loss = lambda_ * penalty.compute(W)
             assert not np.any(np.isnan(loss))
-            losses["penalties_W"][str(penalty.__class__)] = loss / T / K
+            losses["penalties_W"][penalty.__class__.__name__] = loss / T / K
             full_loss += loss
 
         losses["full"] = full_loss
@@ -304,7 +308,8 @@ class SmoothGain(Penalty):
     def grad_pos(self, X: ArrayType):
         return 4 * X
 
-#TODO: weird results. check implementation
+
+# TODO: weird results. check implementation
 class VirtanenTemporalContinuity(Penalty):
     """
     Monaural Sound Source Separation by Nonnegative Matrix Factorization With Temporal
@@ -376,6 +381,7 @@ class SmoothDiago(Penalty):
 
     def grad_pos(self, X: ArrayType) -> ArrayType | float:
         return dense_to_sparse(4 * X)
+
 
 class PolyphonyLimit(Postprocessor):
     """

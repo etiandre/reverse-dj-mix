@@ -37,10 +37,10 @@ def plot_carve_resize(H_carved: np.ndarray, H_carved_resized: np.ndarray):
     return fig
 
 
-def plot_loss_history(losses: list[dict]):
-    fig, ax = plt.subplots(figsize=(10, 4))
+def plot_loss_history(losses: list[dict], ax=None):
+    ax = ax or plt.gca()
     for k in losses[0]["penalties"].keys():
-        ax.plot([i["penalties"][k] for i in losses], label=str(k.__class__))
+        ax.plot([i["penalties"][k] for i in losses], label=k)
     ax.plot([i["divergence"] for i in losses], label="divergence")
     ax.plot([i["full"] for i in losses], "--", label="total")
 
@@ -48,8 +48,8 @@ def plot_loss_history(losses: list[dict]):
     ax.set_ylabel("losses")
     ax.set_yscale("log")
     ax.legend()
-
-    return fig
+    
+    return ax
 
 
 def plot_warp(

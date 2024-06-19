@@ -6,7 +6,7 @@ import librosa
 import logging
 from modular_nmf import Divergence, Penalty, Postprocessor, NMF
 import abc
-
+import copy
 logger = logging.getLogger(__name__)
 from common import ArrayType, sparse_to_dense, dense_to_sparse
 
@@ -39,7 +39,7 @@ class ActivationLearner:
         additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
-        low_power_factor: float = -40,
+        low_power_factor: float = 0.01,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
