@@ -14,24 +14,32 @@ import optuna_dashboard
 from optuna_dashboard.artifact import get_artifact_path
 from tqdm import tqdm
 
+USE_GPU = False
+
+if USE_GPU:
+    import manage_gpus as gpl
+    gpl.get_gpu_lock()
 import activation_learner
 import pytorch_nmf
 import param_estimator
 import plot
 from unmixdb import UnmixDB
 from multiprocessing import Lock
+import torch.profiler
 
-UNMIXDB_PATH = Path("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo")
+# UNMIXDB_PATH = Path("/data2/anasynth_nonbp/andre/unmixdb-zenodo")
+UNMIXDB_PATH = Path("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo/")
 unmixdb = UnmixDB(UNMIXDB_PATH)
 GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
 LOG_NMF_EVERY = 100
 DLOSS_MIN = -np.inf
-ITER_MAX = 1000
+ITER_MAX = 1
 TRYPRUNE_EVERY = 500
 LAMBDA_MAX = 1e5
 FS = 22050
 MIX_NAME = "set275mix3-stretch-none-28.mp3"
+
 
 mix = unmixdb.mixes[MIX_NAME]
 input_paths = [unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks] + [
@@ -50,9 +58,10 @@ lock = Lock()
 def objective(trial: optuna.trial.Trial):
     hop_size = 1
 
-    overlap = trial.suggest_float("overlap", 1, 8)
+    overlap = 1
     win_size = hop_size * overlap
-    nmels = 64
+    nmels = 512
+    nmels = 256
     low_power_factor = trial.suggest_float("low_power_factor", 1e-4, 1e4, log=True)
     divergence = pytorch_nmf.ItakuraSaito()
     penalties = [
@@ -85,6 +94,7 @@ def objective(trial: optuna.trial.Trial):
             penalties=penalties,
             divergence=divergence,
             low_power_factor=low_power_factor,
+            use_gpu=USE_GPU,
         )
         #################
         # iterate
@@ -93,15 +103,20 @@ def objective(trial: optuna.trial.Trial):
         )
         loss_history = []
         loss = np.inf
-        for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
-            learner.iterate()
-            if i % 10 == 0:
-                loss, loss_components = learner.loss()
-                loss_history.append(loss_components)
+        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]) as prof:
+            for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
+                learner.iterate()
+                if i % 10 == 0:
+                    loss, loss_components = learner.loss()
+                    loss_history.append(loss_components)
 
                 if i >= ITER_MAX:
                     logger.info(f"Stopped at NMF iteration={i} loss={loss}")
                     break
+        prof.export_chrome_trace("trace.json")
+        prof.export_memory_timeline("mem.html")
+        prof.export_stacks("stacks.stacks")
+        exit(0)
         #############
         # estimations
 
@@ -111,11 +126,11 @@ def objective(trial: optuna.trial.Trial):
         real_warp = mix.get_track_warp(tau)
 
         # estimate gain
-        est_gain = GAIN_ESTOR.value(learner)
+        est_gain = GAIN_ESTOR(learner)
         err_gain = param_estimator.error(est_gain, real_gain)
 
         # estimate warp
-        est_warp = WARP_ESTOR.value(learner, hop_size)
+        est_warp = WARP_ESTOR(learner, hop_size)
         err_warp = param_estimator.error(est_warp, real_warp)
 
         ###################
@@ -166,6 +181,10 @@ def objective(trial: optuna.trial.Trial):
         return loss, err_gain, err_warp
     except optuna.TrialPruned:
         raise
+    except KeyboardInterrupt:
+        raise
+    except SystemExit:
+        raise
     except Exception:
         traceback.print_exc()
         return None
@@ -183,5 +202,5 @@ study = optuna.create_study(
 study.optimize(
     objective,
     n_trials=2000,
-    n_jobs=20,
+    n_jobs=1,
 )  # Invoke optimization of the objective function.

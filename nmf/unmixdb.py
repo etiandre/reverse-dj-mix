@@ -5,7 +5,7 @@ import csv
 from functools import cached_property
 import librosa
 import numpy as np
-
+from typing import Union
 
 @dataclass
 class Mix:
@@ -123,7 +123,7 @@ class RefSong:
 
 
 class UnmixDB:
-    def __init__(self, base_path: Path | str):
+    def __init__(self, base_path: Union[Path, str]):
         base_path = Path(base_path)
         self.mixes: dict[str, Mix] = {}
         self.refsongs: dict[str, RefSong] = {}
