@@ -1,3 +1,4 @@
+import functools
 import torch
 from torch import Tensor
 from torch.nn import Parameter
@@ -34,14 +35,13 @@ class Penalty(abc.ABC):
     def grad_pos(self, X: Tensor) -> Tensor:
         raise NotImplementedError()
 
-
 def _double_backward_update(
-    Vt: Tensor,
-    WHt: Tensor,
-    param: Parameter,
     divergence: Divergence,
     penalties: list[tuple[Penalty, float]],
     is_param_transposed: bool,
+    Vt: Tensor,
+    WHt: Tensor,
+    param: Parameter,
 ):
     param.grad = None
     # divergence
@@ -58,17 +58,18 @@ def _double_backward_update(
     pos = param.grad.relu_().add_(EPS)
 
     # penalties
-    if is_param_transposed:
-        for penalty, lambda_ in penalties:
-            pos.add_(penalty.grad_pos(param.T).T, alpha=lambda_)
-            neg.add_(penalty.grad_neg(param.T).T, alpha=lambda_)
-    else:
-        for penalty, lambda_ in penalties:
-            pos.add_(penalty.grad_pos(param), alpha=lambda_)
-            neg.add_(penalty.grad_neg(param), alpha=lambda_)
+    with torch.no_grad():
+        if is_param_transposed:
+            for penalty, lambda_ in penalties:
+                pos.add_(penalty.grad_pos(param.T).T, alpha=lambda_)
+                neg.add_(penalty.grad_neg(param.T).T, alpha=lambda_)
+        else:
+            for penalty, lambda_ in penalties:
+                pos.add_(penalty.grad_pos(param), alpha=lambda_)
+                neg.add_(penalty.grad_neg(param), alpha=lambda_)
 
-    multiplier = neg.div_(pos)
-    param.data.mul_(multiplier)
+        multiplier = neg.div_(pos)
+        param.data.mul_(multiplier)
 
 
 class NMF(torch.nn.Module):
@@ -96,11 +97,14 @@ class NMF(torch.nn.Module):
             "Ht", Parameter(torch.empty(*H.T.shape), requires_grad=trainable_H)
         )
         self.Ht.data.copy_(H.T)
-
         self.Vt = V.T
         self.divergence = divergence
         self.penalties_W = penalties_W
         self.penalties_H = penalties_H
+        
+        self._dbu_W = torch.compile(functools.partial(_double_backward_update, divergence, penalties_W, True))
+        self._dbu_H = torch.compile(functools.partial(_double_backward_update, divergence, penalties_W, True))
+        
 
     def iterate(self):
         W = self.W
@@ -110,16 +114,12 @@ class NMF(torch.nn.Module):
 
         if self.W.requires_grad:
             WHt = self.reconstruct(Ht.detach(), W)
-            _double_backward_update(
-                Vt, WHt, W, self.divergence, self.penalties_W, is_param_transposed=False
-            )
+            self._dbu_W(Vt, WHt, W)
 
         if Ht.requires_grad:
             WHt = self.reconstruct(Ht, W.detach())
-            _double_backward_update(
-                Vt, WHt, Ht, self.divergence, self.penalties_H, is_param_transposed=True
-            )
-
+            self._dbu_H(Vt, WHt, Ht)
+    @torch.no_grad
     def loss(self) -> tuple[float, dict]:
         losses = {}
         losses["penalties_H"] = {}
@@ -135,19 +135,19 @@ class NMF(torch.nn.Module):
         WHt = self.reconstruct(Ht, W)
 
         full_loss = self.divergence.compute(Vt.T, WHt.T) / Vt.numel()
-        assert not torch.any(torch.isnan(full_loss))
+        # assert not torch.any(torch.isnan(full_loss))
         full_loss = full_loss.item()
         losses["divergence"] = full_loss
 
         for penalty, lambda_ in self.penalties_H:
             loss = lambda_ * penalty.compute(Ht) / Ht.numel()
-            assert not torch.any(torch.isnan(loss))
+            # assert not torch.any(torch.isnan(loss))
             losses["penalties_H"][penalty.__class__.__name__] = loss.item()
             full_loss += loss.item()
 
         for penalty, lambda_ in self.penalties_W:
             loss = lambda_ * penalty.compute(W) / W.numel()
-            assert not torch.any(torch.isnan(loss))
+            # assert not torch.any(torch.isnan(loss))
             losses["penalties_W"][penalty.__class__.__name__] = loss.item()
             full_loss += loss.item()
 

@@ -38,7 +38,7 @@ def _apply_Hi(model: ActivationLearner, fn: Callable):
 
 
 class GainEstimator(enum.Enum):
-    @enum.member
+    # @enum.member
     @staticmethod
     def SUM(model):
         return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.sum(Hi, axis=0)))
@@ -50,7 +50,7 @@ class GainEstimator(enum.Enum):
 
 
 class WarpEstimator(enum.Enum):
-    @enum.member
+    # @enum.member
     @staticmethod
     def CENTER_OF_MASS(model, hop_size: float):
         return _apply_Hi(model, fn=center_of_mass_columns) * hop_size

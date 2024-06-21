@@ -34,6 +34,7 @@ class ActivationLearner:
         stft_win_func: str = "hann",
         n_mels: int = 512,
         low_power_factor: float = 0.01,
+        use_gpu: bool = False,
     ):
         win_len = int(win_size * fs)
         hop_len = int(hop_size * fs)
@@ -99,15 +100,16 @@ class ActivationLearner:
         logger.info(f"Shape of H: {H.shape}")
         logger.info(f"Shape of V: {V.shape}")
 
+        device = torch.device('cuda') if use_gpu else torch.device('cpu')
         self.nmf = NMF(
-            torch.Tensor(V),
-            torch.Tensor(W),
-            torch.Tensor(H),
+            torch.Tensor(V).to(device),
+            torch.Tensor(W).to(device),
+            torch.Tensor(H).to(device),
             divergence,
             [],
             penalties,
             trainable_W=False,
-        )
+        ).to(device)
 
     def iterate(self):
         self.nmf.iterate()
@@ -151,12 +153,12 @@ class ActivationLearner:
 
     @property
     def H(self):
-        return self.nmf.H.detach().numpy() * self.V_norm_factor / self.W_norm_factor.T
+        return self.nmf.H.cpu().detach().numpy() * self.V_norm_factor / self.W_norm_factor.T
 
     @property
     def W(self):
-        return self.nmf.W.detach().numpy() * self.W_norm_factor
+        return self.nmf.W.cpu().detach().numpy() * self.W_norm_factor
 
     @property
     def V(self):
-        return self.nmf.V.detach().numpy() * self.V_norm_factor
+        return self.nmf.V.cpu().detach().numpy() * self.V_norm_factor
