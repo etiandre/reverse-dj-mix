@@ -26,24 +26,24 @@ from unmixdb import UnmixDB
 
 # hyperparams
 FS = 22050
-HOP_SIZES = [2.0]
-OVERLAP_FACTOR = 6
+HOP_SIZES = [1.0]
+OVERLAP_FACTOR = 5
 CARVE_THRESHOLD_DB = -60
 NMELS = 256
 DIVERGENCE = modular_nmf.BetaDivergence(0)
 PENALTIES = [
-    # (modular_nmf.SmoothDiago(), 10000),
-    # (modular_nmf.L1(), 10),
-    # (modular_nmf.SmoothGain(), 10),
-    # (modular_nmf.VirtanenTemporalContinuity(), 1)
+    (modular_nmf.SmoothDiago(), 216),
+    (modular_nmf.L1(), 23),
+    (modular_nmf.L2(), 823),
+    (modular_nmf.SmoothGain(), 23),
 ]
 POSTPROCESSORS = [
     # (modular_nmf.PolyphonyLimit(1), 0.1)
 ]
 PP_STRENGTH = 0
-LOW_POWER_FACTOR = 1e-2
+LOW_POWER_FACTOR = 2e-2
 # stop conditions
-DLOSS_MIN = -np.inf
+DLOSS_MIN = 1e-7
 LOSS_MIN = -np.inf
 ITER_MAX = 3000
 ## other stuff
@@ -177,9 +177,9 @@ def worker(mix_name, mix):
         plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix_name}/nmf.png")
 
         # plot loss history
-        plot.plot_loss_history(loss_history).savefig(
-            RESULTS_DIR / f"{date}/{mix_name}/loss.png"
-        )
+        fig = plt.figure()
+        plot.plot_loss_history(loss_history)
+        fig.savefig(RESULTS_DIR / f"{date}/{mix_name}/loss.png")
 
         # logger.info("Reconstructing tracks")
         # for i, y in enumerate(learner.reconstruct_tracks()):
@@ -315,9 +315,7 @@ def worker(mix_name, mix):
             results["fadeout_stop"]["err"][i] = param_estimator.error(
                 est_fadeout_stop, real_track_start
             )
-            results["speed"]["err"][i] = param_estimator.error(
-                est_speed, real_speed
-            )
+            results["speed"]["err"][i] = param_estimator.error(est_speed, real_speed)
         tick_estimation = time.time()
 
         # log times

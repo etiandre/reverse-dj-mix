@@ -48,7 +48,7 @@ def plot_loss_history(losses: list[dict], ax=None):
     ax.set_ylabel("losses")
     ax.set_yscale("log")
     ax.legend()
-    
+
     return ax
 
 

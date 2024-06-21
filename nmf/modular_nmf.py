@@ -142,15 +142,15 @@ class NMF:
         losses["divergence"] = full_loss
 
         for penalty, lambda_ in self.penalties_H:
-            loss = lambda_ * penalty.compute(H)
+            loss = lambda_ * penalty.compute(H) / T / K
             assert not np.any(np.isnan(loss))
-            losses["penalties_H"][penalty.__class__.__name__] = loss / T / K
+            losses["penalties_H"][penalty.__class__.__name__] = loss
             full_loss += loss
 
         for penalty, lambda_ in self.penalties_W:
-            loss = lambda_ * penalty.compute(W)
+            loss = lambda_ * penalty.compute(W) / T / K
             assert not np.any(np.isnan(loss))
-            losses["penalties_W"][penalty.__class__.__name__] = loss / T / K
+            losses["penalties_W"][penalty.__class__.__name__] = loss
             full_loss += loss
 
         losses["full"] = full_loss
@@ -381,6 +381,71 @@ class SmoothDiago(Penalty):
 
     def grad_pos(self, X: ArrayType) -> ArrayType | float:
         return dense_to_sparse(4 * X)
+
+
+class WarpSmoothnessA(Penalty):
+    def compute(self, X: ArrayType) -> float:
+        return float(
+            np.sum((X[:-1, :-1] - X[1:, 1:]) ** 2)
+            + np.sum((X[:, :-1] - X[:, 1:]) ** 2)
+            + np.sum((X[:-1, :] - X[1:, :]) ** 2)
+        )
+
+    def grad_neg(self, X: ArrayType) -> ArrayType | float:
+        T, K = X.shape
+        grad_H_neg = np.zeros_like(X)
+        for i in range(1, T - 1):
+            for j in range(1, K - 1):
+                grad_H_neg[i, j] = 2 * (
+                    X[i - 1, j - 1]
+                    + X[i + 1, j + 1]
+                    + X[i, j - 1]
+                    + X[i, j + 1]
+                    + X[i - 1, j]
+                    + X[i + 1, j]
+                )
+        return dense_to_sparse(grad_H_neg)
+
+    def grad_pos(self, X: ArrayType) -> ArrayType | float:
+        return dense_to_sparse(12 * X)
+
+
+class WarpSmoothnessB(Penalty):
+    def compute(self, X: ArrayType) -> float:
+        return float(np.sum(X[:-1, :-1] * X[1:, 1:] * X[:-1, 1:] * X[1:, :-1]))
+
+    def grad_neg(self, X: ArrayType) -> ArrayType | float:
+        return 0
+
+    def grad_pos(self, X: ArrayType) -> ArrayType | float:
+        T, K = X.shape
+        ret = np.zeros_like(X)
+        for i in range(1, T - 1):
+            for j in range(1, K - 1):
+                ret[i, j] = (
+                    X[i + 1, j] * X[i, j + 1] * X[i + 1, j + 1]
+                    + X[i - 1, j] * X[i - 1, j + 1] * X[i, j + 1]
+                    + X[i, j - 1] * X[i + 1, j - 1] * X[i + 1, j]
+                    + X[i - 1, j - 1] * X[i, j - 1] * X[i - 1, j]
+                )
+        return dense_to_sparse(ret)
+
+
+class ColumnClusterPromotion(Penalty):
+    def compute(self, X: ArrayType) -> float:
+        return float(np.sum((X[1:, :] - X[:-1, :]) ** 2))
+
+    def grad_neg(self, X: ArrayType):
+        T, K = X.shape
+        ret = np.zeros_like(X)
+        for i in range(1, T - 1):
+            for j in range(K):
+                ret[i, j] = 2 * (X[i - 1, j] + X[i + 1, j])
+
+        return dense_to_sparse(ret)
+
+    def grad_pos(self, X: ArrayType):
+        return 4 * X
 
 
 class PolyphonyLimit(Postprocessor):

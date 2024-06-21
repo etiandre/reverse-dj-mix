@@ -1,14 +1,10 @@
 import numpy as np
-import sparse
-import scipy.ndimage
-import scipy.signal
 import librosa
 import logging
-from modular_nmf import Divergence, Penalty, Postprocessor, NMF
-import abc
-import copy
+from pytorch_nmf import Divergence, Penalty, NMF
+import torch
+
 logger = logging.getLogger(__name__)
-from common import ArrayType, sparse_to_dense, dense_to_sparse
 
 
 def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
@@ -35,8 +31,6 @@ class ActivationLearner:
         hop_size: float,
         divergence: Divergence,
         penalties: list[tuple[Penalty, float]],
-        postprocessors: list[tuple[Postprocessor, float]],
-        additional_dim: int = 0,
         stft_win_func: str = "hann",
         n_mels: int = 512,
         low_power_factor: float = 0.01,
@@ -47,7 +41,6 @@ class ActivationLearner:
         logger.info(f"{hop_len=}")
         logger.info(f"overlap={1-hop_size/win_size:%}")
 
-        self.learn_add = additional_dim > 0
         self.inputs = inputs
         self.n_mels = n_mels
         self.fs = fs
@@ -82,12 +75,7 @@ class ActivationLearner:
         # construct NMF matrices
         V = input_powspecs[-1]
 
-        if self.learn_add:
-            Wa = np.random.rand(input_powspecs[0].shape[0], additional_dim)
-            W = np.concatenate(input_powspecs[:-1] + [Wa], axis=1)
-            self.split_idx.append(self.split_idx[-1] + additional_dim)
-        else:
-            W = np.concatenate(input_powspecs[:-1], axis=1)
+        W = np.concatenate(input_powspecs[:-1], axis=1)
 
         # fill the columns of W with too little power with noise to prevent explosion in NMF
         # frames_power = W.sum(axis=0)
@@ -106,36 +94,26 @@ class ActivationLearner:
 
         # initialize activation matrix
         H = np.random.rand(W.shape[1], V.shape[1])
-        H = dense_to_sparse(H)
 
         logger.info(f"Shape of W: {W.shape}")
         logger.info(f"Shape of H: {H.shape}")
         logger.info(f"Shape of V: {V.shape}")
 
-        self._V, self._W, self._H = V, W, H
+        self.nmf = NMF(
+            torch.Tensor(V),
+            torch.Tensor(W),
+            torch.Tensor(H),
+            divergence,
+            [],
+            penalties,
+            trainable_W=False,
+        )
 
-        self.nmf = NMF(divergence, [], penalties, postprocessors)
+    def iterate(self):
+        self.nmf.iterate()
 
-    def iterate(self, pp_strength: float):
-        if self.learn_add:
-            # TODO: this is very unefficient
-            # save everything except Wa
-            W_save = self._W[:, : self.split_idx[-2]].copy()
-            self._W = self.nmf.iterate_W(self._V, self._W, self._H)
-            # copy it back
-            self._W[:, : self.split_idx[-2]] = W_save
-            # clip Wa
-            self._W[:, self.split_idx[-2] : self.split_idx[-1]] = np.clip(
-                self._W[:, self.split_idx[-2] : self.split_idx[-1]], 0, 1
-            )
-        else:
-            self._H = self.nmf.iterate_H(self._V, self._W, self._H, pp_strength)
-
-        # TODO: deduce how to clip given the normalization. Can i even clip ?
-        # self._H[self._H  > 1] = 1
-
-        # Calculate loss
-        full_loss, losses = self.nmf.loss(self._V, self._W, self._H)
+    def loss(self):
+        full_loss, losses = self.nmf.loss()
         losses["penalties"] = losses["penalties_H"]
         del losses["penalties_W"]
         return full_loss, losses
@@ -173,12 +151,12 @@ class ActivationLearner:
 
     @property
     def H(self):
-        return sparse_to_dense(self._H) * self.V_norm_factor / self.W_norm_factor.T
+        return self.nmf.H.detach().numpy() * self.V_norm_factor / self.W_norm_factor.T
 
     @property
     def W(self):
-        return self._W * self.W_norm_factor
+        return self.nmf.W.detach().numpy() * self.W_norm_factor
 
     @property
     def V(self):
-        return self._V * self.V_norm_factor
+        return self.nmf.V.detach().numpy() * self.V_norm_factor
