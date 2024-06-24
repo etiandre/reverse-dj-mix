@@ -18,6 +18,7 @@ USE_GPU = True
 
 if USE_GPU:
     import manage_gpus as gpl
+
     gpl.get_gpu_lock()
 import activation_learner
 import pytorch_nmf
@@ -33,7 +34,7 @@ GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
 LOG_NMF_EVERY = 100
 DLOSS_MIN = -np.inf
-ITER_MAX = 1
+ITER_MAX = 1000
 TRYPRUNE_EVERY = 500
 LAMBDA_MAX = 1e5
 FS = 22050
@@ -57,20 +58,13 @@ lock = Lock()
 def objective(trial: optuna.trial.Trial):
     hop_size = 1
 
-    overlap = trial.suggest_float("overlap", 1, 8)
+    overlap = 1
     win_size = hop_size * overlap
-    nmels = 512
+    nmels = 64
     low_power_factor = trial.suggest_float("low_power_factor", 1e-4, 1e4, log=True)
-    divergence = pytorch_nmf.ItakuraSaito()
+    divergence = pytorch_nmf.BetaDivergence(trial.suggest_float("beta", 0, 2))
     penalties = [
         (pytorch_nmf.L1(), trial.suggest_float("l1", 0, 1e4)),
-        (pytorch_nmf.L2(), trial.suggest_float("l2", 0, 1e4)),
-        (pytorch_nmf.SmoothOverCol(), trial.suggest_float("smoothcol", 0, 1e3)),
-        (
-            pytorch_nmf.SmoothOverRow(),
-            trial.suggest_float("smoothrow", 0, 1e3),
-        ),
-        (pytorch_nmf.SmoothDiago(), trial.suggest_float("smoothdiago", 0, 1e3)),
         (
             pytorch_nmf.Lineness(),
             trial.suggest_float("lineness", 0, 1e6),
@@ -101,20 +95,20 @@ def objective(trial: optuna.trial.Trial):
         )
         loss_history = []
         loss = np.inf
-        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]) as prof:
-            for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
-                learner.iterate()
-                if i % 10 == 0:
-                    loss, loss_components = learner.loss()
-                    loss_history.append(loss_components)
+        # with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA], record_shapes=True, profile_memory=True, with_stack=True) as prof:
+        for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
+            learner.iterate()
+            if i % 50 == 0:
+                loss, loss_components = learner.loss()
+                loss_history.append(loss_components)
 
-                if i >= ITER_MAX:
-                    logger.info(f"Stopped at NMF iteration={i} loss={loss}")
-                    break
-        prof.export_chrome_trace("trace.json")
-        prof.export_memory_timeline("mem.html")
-        prof.export_stacks("stacks.stacks")
-        exit(0)
+            if i >= ITER_MAX:
+                logger.info(f"Stopped at NMF iteration={i} loss={loss}")
+                break
+        # prof.export_chrome_trace("trace.json")
+        # prof.export_memory_timeline("mem.html")
+        # prof.export_stacks("stacks.stacks")
+        # exit(0)
         #############
         # estimations
 
@@ -178,6 +172,10 @@ def objective(trial: optuna.trial.Trial):
         plt.close("all")
         return loss, err_gain, err_warp
     except optuna.TrialPruned:
+        raise
+    except KeyboardInterrupt:
+        raise
+    except SystemExit:
         raise
     except Exception:
         traceback.print_exc()

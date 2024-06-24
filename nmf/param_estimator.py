@@ -60,7 +60,6 @@ class WarpEstimator(enum.Enum):
     # def ARGMAX(model):
     #     return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0))
 
-
 def ideal_gain(tau, tau0, a, b, c, g_max):
     tau1 = tau0 + a
     tau2 = tau1 + b
