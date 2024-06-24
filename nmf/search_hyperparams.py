@@ -1,6 +1,7 @@
 import itertools
 import logging
 import os
+import pickle
 import textwrap
 import traceback
 from pathlib import Path
@@ -18,6 +19,7 @@ USE_GPU = False
 
 if USE_GPU:
     import manage_gpus as gpl
+
     gpl.get_gpu_lock()
 import activation_learner
 import pytorch_nmf
@@ -34,11 +36,9 @@ GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
 LOG_NMF_EVERY = 100
 DLOSS_MIN = -np.inf
-ITER_MAX = 1
-TRYPRUNE_EVERY = 500
-LAMBDA_MAX = 1e5
+ITER_MAX = 500
 FS = 22050
-MIX_NAME = "set275mix3-stretch-none-28.mp3"
+MIX_NAME = "set044mix3-none-none-03.mp3"
 
 
 mix = unmixdb.mixes[MIX_NAME]
@@ -56,16 +56,18 @@ lock = Lock()
 
 
 def objective(trial: optuna.trial.Trial):
-    hop_size = 1
+    hop_size = 0.5
 
-    overlap = 1
+    overlap = trial.suggest_float("overlap", 1, 8)
     win_size = hop_size * overlap
-    nmels = 512
-    nmels = 256
-    low_power_factor = trial.suggest_float("low_power_factor", 1e-4, 1e4, log=True)
-    divergence = pytorch_nmf.BetaDivergence(trial.suggest_float("beta", 0, 2))
+    nmels = 128
+    noise_floor = 0.01
+    divergence = pytorch_nmf.ItakuraSaito()
     penalties = [
         (pytorch_nmf.L1(), trial.suggest_float("l1", 0, 1e4)),
+        (pytorch_nmf.SmoothDiago(), trial.suggest_float("smoothdiago", 0, 1e4)),
+        (pytorch_nmf.SmoothOverCol(), trial.suggest_float("smoothovercol", 0, 1e4)),
+        (pytorch_nmf.SmoothOverRow(), trial.suggest_float("smoothoverrow", 0, 1e4)),
         (
             pytorch_nmf.Lineness(),
             trial.suggest_float("lineness", 0, 1e6),
@@ -86,7 +88,7 @@ def objective(trial: optuna.trial.Trial):
             hop_size=hop_size,
             penalties=penalties,
             divergence=divergence,
-            low_power_factor=low_power_factor,
+            noise_floor=noise_floor,
             use_gpu=USE_GPU,
         )
         #################
@@ -153,7 +155,15 @@ def objective(trial: optuna.trial.Trial):
                 trial, upload_artifact(trial, "temp.png", artifact_store)
             )
 
+        with lock:
+            with open("temp.pickle", "wb") as f:
+                pickle.dump(learner, f)
+            model_path = get_artifact_path(
+                trial, upload_artifact(trial, "temp.pickle", artifact_store)
+            )
         note = textwrap.dedent(f"""
+        [model.pickle]({model_path})
+        
         ![loss]({loss_path})
         
         ![nmf]({nmf_path})
@@ -161,7 +171,6 @@ def objective(trial: optuna.trial.Trial):
         ![gain]({gain_path})
         
         ![warp]({warp_path})
-        
         """)
         optuna_dashboard.save_note(trial, note)
 
@@ -190,5 +199,5 @@ study = optuna.create_study(
 study.optimize(
     objective,
     n_trials=2000,
-    n_jobs=1,
+    n_jobs=18,
 )  # Invoke optimization of the objective function.

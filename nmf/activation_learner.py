@@ -33,7 +33,7 @@ class ActivationLearner:
         penalties: list[tuple[Penalty, float]],
         stft_win_func: str = "hann",
         n_mels: int = 512,
-        low_power_factor: float = 0.01,
+        noise_floor: float = 0.01,
         use_gpu: bool = False,
     ):
         win_len = int(win_size * fs)
@@ -85,7 +85,7 @@ class ActivationLearner:
         # if np.sum(low_frames) > 0:
         #     logger.info(f"Filling {np.sum(low_frames)} low frames with noise")
         # W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
-        W += np.abs(np.random.randn(*W.shape)) * low_power_factor
+        W += np.abs(np.random.randn(*W.shape)) * noise_floor
         # normalize W and V
         self.W_norm_factor = W.sum(axis=0, keepdims=True)
         assert not np.any(self.W_norm_factor == 0)
@@ -100,7 +100,7 @@ class ActivationLearner:
         logger.info(f"Shape of H: {H.shape}")
         logger.info(f"Shape of V: {V.shape}")
 
-        device = torch.device('cuda') if use_gpu else torch.device('cpu')
+        device = torch.device("cuda") if use_gpu else torch.device("cpu")
         self.nmf = NMF(
             torch.Tensor(V).to(device),
             torch.Tensor(W).to(device),
@@ -153,7 +153,11 @@ class ActivationLearner:
 
     @property
     def H(self):
-        return self.nmf.H.cpu().detach().numpy() * self.V_norm_factor / self.W_norm_factor.T
+        return (
+            self.nmf.H.cpu().detach().numpy()
+            * self.V_norm_factor
+            / self.W_norm_factor.T
+        )
 
     @property
     def W(self):

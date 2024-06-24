@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import abc
 
 EPS = 1e-50
+COMPILE = False
 
 
 class Divergence(abc.ABC):
@@ -34,6 +35,7 @@ class Penalty(abc.ABC):
     @abc.abstractmethod
     def grad_pos(self, X: Tensor) -> Tensor:
         raise NotImplementedError()
+
 
 def _double_backward_update(
     divergence: Divergence,
@@ -101,21 +103,27 @@ class NMF(torch.nn.Module):
         self.divergence = divergence
         self.penalties_W = penalties_W
         self.penalties_H = penalties_H
-        
-        self._dbu_W = torch.compile(functools.partial(_double_backward_update, divergence, penalties_W, True))
-        self._dbu_H = torch.compile(functools.partial(_double_backward_update, divergence, penalties_W, True))
-        
 
         # In [2]: torch._dynamo.list_backends()
         # Out[2]: ['cudagraphs', 'inductor', 'onnxrt', 'openxla', 'openxla_eval', 'tvm']
-        self._dbu_W = torch.compile(
-            functools.partial(_double_backward_update, divergence, penalties_W, False),
-            backend="cudagraphs",
-        )
-        self._dbu_H = torch.compile(
-            functools.partial(_double_backward_update, divergence, penalties_W, True),
-            backend="cudagraphs",
-        )
+        if COMPILE:
+            self._dbu_W = torch.compile(
+                functools.partial(
+                    _double_backward_update, divergence, penalties_W, False
+                ),
+            )
+            self._dbu_H = torch.compile(
+                functools.partial(
+                    _double_backward_update, divergence, penalties_H, True
+                ),
+            )
+        else:
+            self._dbu_W = functools.partial(
+                _double_backward_update, divergence, penalties_W, False
+            )
+            self._dbu_H = functools.partial(
+                _double_backward_update, divergence, penalties_H, True
+            )
 
     def iterate(self):
         W = self.W
@@ -123,7 +131,7 @@ class NMF(torch.nn.Module):
         Vt = self.Vt
         WHt = self.reconstruct(Ht, W)
 
-        if self.W.requires_grad:
+        if W.requires_grad:
             WHt = self.reconstruct(Ht.detach(), W)
             self._dbu_W(Vt, WHt, W)
 
@@ -315,20 +323,19 @@ class SmoothDiago(Penalty):
 
 class Lineness(Penalty):
     def compute(self, X: Tensor):
-        T = X.shape[0]
-        K = X.shape[1]
+        sub_x = X[:-1, :-1]
+        sub_x_i_jp1 = X[:-1, 1:]
+        sub_x_ip1_j = X[1:, :-1]
+        sub_x_ip1_jp1 = X[1:, 1:]
 
-        result = 0
-
-        for t in range(T - 2):
-            for tau in range(K - 2):
-                result += X[t, tau] * (
-                    X[t, tau + 1] * X[t + 1, tau + 1]
-                    + X[t + 1, tau] * X[t + 1, tau + 1]
-                    + X[t + 1, tau] * X[t, tau + 1]
-                )
-
-        return result
+        return (
+            sub_x
+            * (
+                sub_x_i_jp1 * sub_x_ip1_jp1
+                + sub_x_ip1_j * sub_x_ip1_jp1
+                + sub_x_ip1_j * sub_x_i_jp1
+            )
+        ).sum()
 
     def grad_neg(self, X: Tensor):
         return torch.zeros_like(X)

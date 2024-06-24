@@ -130,7 +130,7 @@ def worker(mix_name, mix):
                 divergence=DIVERGENCE,
                 penalties=PENALTIES,
                 postprocessors=POSTPROCESSORS,
-                low_power_factor=LOW_POWER_FACTOR,
+                noise_floor=LOW_POWER_FACTOR,
             )
 
             # carve and resize H from previous round

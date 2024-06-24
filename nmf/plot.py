@@ -113,7 +113,7 @@ def plot_H(H: np.ndarray, split_idx=None, ax=None):
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
             COLOR = "pink"
-            ax.axhline(a - 0.5, color=COLOR, linestyle="--")
+            ax.axhline(a - 0.5, color=COLOR, linestyle="--", alpha=0.5)
             ax.annotate(f"track {track}", (0, (a + b) / 2), color=COLOR)
 
     ax.set_xlabel("mix frame")
@@ -129,7 +129,7 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
     if split_idx is not None:
         COLOR = "pink"
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-            ax.axvline(a - 0.5, color=COLOR, linestyle="--")
+            ax.axvline(a - 0.5, color=COLOR, linestyle="--", alpha=0.5)
             ax.annotate(f"track {track}", ((a + b) / 2, 1), color=COLOR)
 
     return im
