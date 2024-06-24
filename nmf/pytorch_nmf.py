@@ -106,6 +106,17 @@ class NMF(torch.nn.Module):
         self._dbu_H = torch.compile(functools.partial(_double_backward_update, divergence, penalties_W, True))
         
 
+        # In [2]: torch._dynamo.list_backends()
+        # Out[2]: ['cudagraphs', 'inductor', 'onnxrt', 'openxla', 'openxla_eval', 'tvm']
+        self._dbu_W = torch.compile(
+            functools.partial(_double_backward_update, divergence, penalties_W, False),
+            backend="cudagraphs",
+        )
+        self._dbu_H = torch.compile(
+            functools.partial(_double_backward_update, divergence, penalties_W, True),
+            backend="cudagraphs",
+        )
+
     def iterate(self):
         W = self.W
         Ht = self.Ht
@@ -119,6 +130,7 @@ class NMF(torch.nn.Module):
         if Ht.requires_grad:
             WHt = self.reconstruct(Ht, W.detach())
             self._dbu_H(Vt, WHt, Ht)
+
     @torch.no_grad
     def loss(self) -> tuple[float, dict]:
         losses = {}
@@ -186,7 +198,39 @@ class ItakuraSaito(Divergence):
         return self.grad_pos(V, Vhat).square().mul_(V)
 
 
+class BetaDivergence(Divergence):
+    def __init__(self, beta: float):
+        self.beta = beta
+
+    def compute(self, V: Tensor, Vhat: Tensor):
+        Vhat_eps = Vhat.add(EPS)
+        if self.beta == 0:
+            ret = V / Vhat_eps - torch.log(V / Vhat_eps) - 1
+        elif self.beta == 1:
+            ret = V * (torch.log(V) - torch.log(Vhat_eps)) + (Vhat_eps - V)
+        else:
+            ret = (
+                (
+                    torch.pow(V, self.beta)
+                    + (self.beta - 1) * torch.pow(Vhat_eps, self.beta)
+                    - self.beta * V * torch.pow(Vhat_eps, self.beta - 1)
+                )
+                / self.beta
+                / (self.beta - 1)
+            )
+        return torch.sum(ret)
+
+    def grad_pos(self, V: Tensor, Vhat: Tensor):
+        Vhat_eps = Vhat.add(EPS)
+        return Vhat_eps.pow(self.beta - 1)
+
+    def grad_neg(self, V: Tensor, Vhat: Tensor):
+        return V * Vhat.pow(self.beta - 2)
+
+
 class L1(Penalty):
+    """L1 regu, also known as Lasso"""
+
     def compute(self, X: Tensor):
         return X.sum().abs()
 
@@ -198,6 +242,8 @@ class L1(Penalty):
 
 
 class L2(Penalty):
+    """L1 regu, also known as Ridge"""
+
     def compute(self, X: Tensor):
         return X.pow(2).sum()
 

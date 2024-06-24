@@ -63,16 +63,9 @@ def objective(trial: optuna.trial.Trial):
     nmels = 512
     nmels = 256
     low_power_factor = trial.suggest_float("low_power_factor", 1e-4, 1e4, log=True)
-    divergence = pytorch_nmf.ItakuraSaito()
+    divergence = pytorch_nmf.BetaDivergence(trial.suggest_float("beta", 0, 2))
     penalties = [
         (pytorch_nmf.L1(), trial.suggest_float("l1", 0, 1e4)),
-        (pytorch_nmf.L2(), trial.suggest_float("l2", 0, 1e4)),
-        (pytorch_nmf.SmoothOverCol(), trial.suggest_float("smoothcol", 0, 1e3)),
-        (
-            pytorch_nmf.SmoothOverRow(),
-            trial.suggest_float("smoothrow", 0, 1e3),
-        ),
-        (pytorch_nmf.SmoothDiago(), trial.suggest_float("smoothdiago", 0, 1e3)),
         (
             pytorch_nmf.Lineness(),
             trial.suggest_float("lineness", 0, 1e6),
@@ -103,20 +96,15 @@ def objective(trial: optuna.trial.Trial):
         )
         loss_history = []
         loss = np.inf
-        with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]) as prof:
-            for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
-                learner.iterate()
-                if i % 10 == 0:
-                    loss, loss_components = learner.loss()
-                    loss_history.append(loss_components)
+        for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
+            learner.iterate()
+            if i % 10 == 0:
+                loss, loss_components = learner.loss()
+                loss_history.append(loss_components)
 
                 if i >= ITER_MAX:
                     logger.info(f"Stopped at NMF iteration={i} loss={loss}")
                     break
-        prof.export_chrome_trace("trace.json")
-        prof.export_memory_timeline("mem.html")
-        prof.export_stacks("stacks.stacks")
-        exit(0)
         #############
         # estimations
 
