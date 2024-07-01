@@ -1,6 +1,10 @@
+import abc
+from typing import Sequence, Union
 import numpy as np
 import librosa
 import logging
+
+from tqdm import tqdm
 from pytorch_nmf import Divergence, Penalty, NMF
 import torch
 
@@ -22,6 +26,30 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
     return melspec, spec
 
 
+class Warmup(abc.ABC):
+    @abc.abstractmethod
+    def get(self, iter: int) -> float:
+        pass
+
+
+class LinearWarmup(Warmup):
+    def __init__(self, p0: float, p1: float, i0: int, i1: int):
+        self.p0 = p0
+        self.p1 = p1
+        self.i0 = i0
+        self.i1 = i1
+
+    def get(self, iter: int):
+        if iter < self.i0:
+            return self.p0
+        elif iter > self.i1:
+            return self.p1
+        else:
+            return self.p0 + (self.p1 - self.p0) * (iter - self.i0) / (
+                self.i1 - self.i0
+            )
+
+
 class ActivationLearner:
     def __init__(
         self,
@@ -30,7 +58,7 @@ class ActivationLearner:
         win_size: float,
         hop_size: float,
         divergence: Divergence,
-        penalties: list[tuple[Penalty, float]],
+        penalties: Sequence[tuple[Penalty, Union[float, Warmup]]],
         stft_win_func: str = "hann",
         n_mels: int = 512,
         noise_floor: float = 0.01,
@@ -85,9 +113,10 @@ class ActivationLearner:
         # if np.sum(low_frames) > 0:
         #     logger.info(f"Filling {np.sum(low_frames)} low frames with noise")
         # W[:, low_frames] = np.random.rand(W.shape[0], np.sum(low_frames))
-        W += np.abs(np.random.randn(*W.shape)) * noise_floor
+        W += noise_floor
         # normalize W and V
         self.W_norm_factor = W.sum(axis=0, keepdims=True)
+        # self.W_norm_factor[self.W_norm_factor == 0] = 1
         assert not np.any(self.W_norm_factor == 0)
         self.V_norm_factor = V.sum()
         W = W / self.W_norm_factor
@@ -101,21 +130,39 @@ class ActivationLearner:
         logger.info(f"Shape of V: {V.shape}")
 
         device = torch.device("cuda") if use_gpu else torch.device("cpu")
+        pen_func, self.pen_warmups = zip(*penalties)
         self.nmf = NMF(
             torch.Tensor(V).to(device),
             torch.Tensor(W).to(device),
             torch.Tensor(H).to(device),
             divergence,
             [],
-            penalties,
+            pen_func,
             trainable_W=False,
         ).to(device)
 
-    def iterate(self):
-        self.nmf.iterate()
+    def fit(self, iter_max: int, loss_every: int = 50):
+        logger.info(
+            f"Running NMF on V:{self.nmf.V.shape}, W:{self.nmf.W.shape}, H:{self.nmf.H.shape}"
+        )
+        loss_history = []
+        loss = np.inf
+        for i in tqdm(range(iter_max)):
+            pen_lambdas = [
+                w.get(i) if isinstance(w, Warmup) else w for w in self.pen_warmups
+            ]
+            self.nmf.iterate([], pen_lambdas)
+            if i % loss_every == 0:
+                loss, loss_components = self.loss(pen_lambdas)
+                loss_history.append(loss_components)
 
-    def loss(self):
-        full_loss, losses = self.nmf.loss()
+            if i >= iter_max:
+                logger.info(f"Stopped at NMF iteration={i} loss={loss}")
+                break
+        return loss_history
+
+    def loss(self, pen_lambdas: list[float]):
+        full_loss, losses = self.nmf.loss([], pen_lambdas)
         losses["penalties"] = losses["penalties_H"]
         del losses["penalties_W"]
         return full_loss, losses

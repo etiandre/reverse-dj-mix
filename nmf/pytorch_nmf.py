@@ -39,8 +39,9 @@ class Penalty(abc.ABC):
 
 def _double_backward_update(
     divergence: Divergence,
-    penalties: list[tuple[Penalty, float]],
+    penalties: list[Penalty],
     is_param_transposed: bool,
+    penalties_lambdas: list[float],
     Vt: Tensor,
     WHt: Tensor,
     param: Parameter,
@@ -62,11 +63,15 @@ def _double_backward_update(
     # penalties
     with torch.no_grad():
         if is_param_transposed:
-            for penalty, lambda_ in penalties:
+            for penalty, lambda_ in zip(penalties, penalties_lambdas):
+                if lambda_ == 0:
+                    continue
                 pos.add_(penalty.grad_pos(param.T).T, alpha=lambda_)
                 neg.add_(penalty.grad_neg(param.T).T, alpha=lambda_)
         else:
-            for penalty, lambda_ in penalties:
+            for penalty, lambda_ in zip(penalties, penalties_lambdas):
+                if lambda_ == 0:
+                    continue
                 pos.add_(penalty.grad_pos(param), alpha=lambda_)
                 neg.add_(penalty.grad_neg(param), alpha=lambda_)
 
@@ -81,8 +86,8 @@ class NMF(torch.nn.Module):
         W: Tensor,
         H: Tensor,
         divergence: Divergence,
-        penalties_W: list[tuple[Penalty, float]],
-        penalties_H: list[tuple[Penalty, float]],
+        penalties_W: list[Penalty],
+        penalties_H: list[Penalty],
         trainable_W: bool = True,
         trainable_H: bool = True,
     ):
@@ -125,7 +130,7 @@ class NMF(torch.nn.Module):
                 _double_backward_update, divergence, penalties_H, True
             )
 
-    def iterate(self):
+    def iterate(self, pen_lambdas_W: list[float], pen_lambdas_H: list[float]):
         W = self.W
         Ht = self.Ht
         Vt = self.Vt
@@ -133,14 +138,16 @@ class NMF(torch.nn.Module):
 
         if W.requires_grad:
             WHt = self.reconstruct(Ht.detach(), W)
-            self._dbu_W(Vt, WHt, W)
+            self._dbu_W(pen_lambdas_W, Vt, WHt, W)
 
         if Ht.requires_grad:
             WHt = self.reconstruct(Ht, W.detach())
-            self._dbu_H(Vt, WHt, Ht)
+            self._dbu_H(pen_lambdas_H, Vt, WHt, Ht)
 
     @torch.no_grad
-    def loss(self) -> tuple[float, dict]:
+    def loss(
+        self, pen_lambdas_W: list[float], pen_lambdas_H: list[float]
+    ) -> tuple[float, dict]:
         losses = {}
         losses["penalties_H"] = {}
         losses["penalties_W"] = {}
@@ -159,13 +166,13 @@ class NMF(torch.nn.Module):
         full_loss = full_loss.item()
         losses["divergence"] = full_loss
 
-        for penalty, lambda_ in self.penalties_H:
+        for penalty, lambda_ in zip(self.penalties_H, pen_lambdas_H):
             loss = lambda_ * penalty.compute(Ht) / Ht.numel()
             # assert not torch.any(torch.isnan(loss))
             losses["penalties_H"][penalty.__class__.__name__] = loss.item()
             full_loss += loss.item()
 
-        for penalty, lambda_ in self.penalties_W:
+        for penalty, lambda_ in zip(self.penalties_W, pen_lambdas_W):
             loss = lambda_ * penalty.compute(W) / W.numel()
             # assert not torch.any(torch.isnan(loss))
             losses["penalties_W"][penalty.__class__.__name__] = loss.item()
@@ -344,26 +351,26 @@ class Lineness(Penalty):
         ret = torch.zeros_like(X)
 
         # Extract the submatrices of X needed for the calculation
-        X_i_p1_j_p1 = X[2:, 2:]  # shifted by +1 in both dims
-        X_i_p1_j = X[2:, 1:-1]  # shifted by +1 in the row dim
-        X_i_j_p1 = X[1:-1, 2:]  # shifted by +1 in the column dim
-        X_i_m1_j_p1 = X[:-2, 2:]  # shifted by -1 in the row dim, +1 in the column dim
-        X_i_m1_j = X[:-2, 1:-1]  # shifted by -1 in the row dim
-        X_i_j_m1 = X[1:-1, :-2]  # shifted by -1 in the column dim
-        X_i_p1_j_m1 = X[2:, :-2]  # shifted by +1 in the row dim, -1 in the column dim
-        X_i_m1_j_m1 = X[:-2, :-2]  # shifted by -1 in both dims
+        X_ip1_jp1 = X[2:, 2:]  # shifted by +1 in both dims
+        X_ip1_j = X[2:, 1:-1]  # shifted by +1 in the row dim
+        X_i_jp1 = X[1:-1, 2:]  # shifted by +1 in the column dim
+        X_im1_jp1 = X[:-2, 2:]  # shifted by -1 in the row dim, +1 in the column dim
+        X_im1_j = X[:-2, 1:-1]  # shifted by -1 in the row dim
+        X_i_jm1 = X[1:-1, :-2]  # shifted by -1 in the column dim
+        X_ip1_jm1 = X[2:, :-2]  # shifted by +1 in the row dim, -1 in the column dim
+        X_im1_jm1 = X[:-2, :-2]  # shifted by -1 in both dims
 
         # Perform the main computation using the extracted submatrices
         ret[1:-1, 1:-1] = (
-            X_i_j_p1 * X_i_p1_j_p1
-            + X_i_p1_j * X_i_p1_j_p1
-            + X_i_p1_j * X_i_j_p1
-            + X_i_m1_j * X_i_j_p1
-            + X_i_m1_j * X_i_m1_j_p1
-            + X_i_j_m1 * X_i_p1_j
-            + X_i_j_m1 * X_i_p1_j_m1
-            + X_i_m1_j_m1 * X_i_m1_j
-            + X_i_m1_j_m1 * X_i_j_m1
+            X_i_jp1 * X_ip1_jp1
+            + X_ip1_j * X_ip1_jp1
+            + X_ip1_j * X_i_jp1
+            + X_im1_j * X_i_jp1
+            + X_im1_j * X_im1_jp1
+            + X_i_jm1 * X_ip1_j
+            + X_i_jm1 * X_ip1_jm1
+            + X_im1_jm1 * X_im1_j
+            + X_im1_jm1 * X_i_jm1
         )
         return ret
 
