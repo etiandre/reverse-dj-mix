@@ -25,7 +25,7 @@ import activation_learner
 import pytorch_nmf
 import param_estimator
 import plot
-from unmixdb import UnmixDB
+from nmf.mixes.unmixdb import UnmixDB
 from multiprocessing import Lock
 import torch.profiler
 
@@ -42,7 +42,7 @@ MIX_NAME = "set044mix3-none-none-03.mp3"
 
 
 mix = unmixdb.mixes[MIX_NAME]
-input_paths = [unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks] + [
+input_paths = [unmixdb.reftracks[track["name"]].audio_path for track in mix.tracks] + [
     mix.audio_path
 ]
 pprint(input_paths)
@@ -88,7 +88,7 @@ def objective(trial: optuna.trial.Trial):
             hop_size=hop_size,
             penalties=penalties,
             divergence=divergence,
-            noise_floor=noise_floor,
+            low_power_threshold=noise_floor,
             use_gpu=USE_GPU,
         )
         #################
@@ -112,8 +112,8 @@ def objective(trial: optuna.trial.Trial):
 
         # get ground truth
         tau = np.arange(0, learner.V.shape[1]) * hop_size
-        real_gain = mix.get_track_gain(tau)
-        real_warp = mix.get_track_warp(tau)
+        real_gain = mix.gain(tau)
+        real_warp = mix.warp(tau)
 
         # estimate gain
         est_gain = GAIN_ESTOR(learner)

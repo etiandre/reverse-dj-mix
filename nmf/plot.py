@@ -65,7 +65,7 @@ def plot_warp(
             ax.plot(
                 tau,
                 t,
-                "--" if real else "-",
+                "--" if real else "x",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
                 label=f"track {i}" if not real else None,
                 alpha=1 if real else 0.7,
@@ -92,7 +92,7 @@ def plot_gain(
             ax.plot(
                 tau,
                 g,
-                "--" if real else "-",
+                "--" if real else "x",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
                 label=f"track {i}" if not real else None,
             )
@@ -109,7 +109,7 @@ def plot_gain(
 # TODO: time in seconds
 def plot_H(H: np.ndarray, split_idx=None, ax=None):
     ax = ax or plt.gca()
-    im = ax.imshow(H, cmap=CMAP, aspect="auto", origin="lower")
+    im = imshow_highlight_zero(H, ax=ax, cmap=CMAP, aspect="auto", origin="lower")
 
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):

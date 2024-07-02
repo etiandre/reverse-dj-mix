@@ -19,7 +19,7 @@ import modular_nmf
 import param_estimator
 import plot
 from common import dense_to_sparse
-from unmixdb import UnmixDB
+from nmf.mixes.unmixdb import UnmixDB
 
 # configuration
 # =============
@@ -102,7 +102,7 @@ def worker(mix_name, mix):
         }
         logger.info(results["hyperparams"])
         input_paths = [
-            unmixdb.refsongs[track["name"]].audio_path for track in mix.tracks
+            unmixdb.reftracks[track["name"]].audio_path for track in mix.tracks
         ] + [mix.audio_path]
         for i in input_paths:
             logger.info(f"input path: {i}")
@@ -130,7 +130,7 @@ def worker(mix_name, mix):
                 divergence=DIVERGENCE,
                 penalties=PENALTIES,
                 postprocessors=POSTPROCESSORS,
-                noise_floor=LOW_POWER_FACTOR,
+                low_power_threshold=LOW_POWER_FACTOR,
             )
 
             # carve and resize H from previous round

@@ -5,7 +5,7 @@ from torch.nn import Parameter
 import torch.nn.functional as F
 import abc
 
-EPS = 1e-50
+EPS = 1e-20
 COMPILE = False
 
 
@@ -60,10 +60,13 @@ def _double_backward_update(
     WHt.backward(output_pos)
     pos = param.grad.relu_().add_(EPS)
 
+    param.grad = None
+
     # penalties
     with torch.no_grad():
         if is_param_transposed:
             for penalty, lambda_ in zip(penalties, penalties_lambdas):
+                print(penalty, lambda_)
                 if lambda_ == 0:
                     continue
                 pos.add_(penalty.grad_pos(param.T).T, alpha=lambda_)
@@ -134,15 +137,16 @@ class NMF(torch.nn.Module):
         W = self.W
         Ht = self.Ht
         Vt = self.Vt
-        WHt = self.reconstruct(Ht, W)
 
         if W.requires_grad:
             WHt = self.reconstruct(Ht.detach(), W)
             self._dbu_W(pen_lambdas_W, Vt, WHt, W)
+            assert not torch.any(torch.isnan(W))
 
         if Ht.requires_grad:
             WHt = self.reconstruct(Ht, W.detach())
             self._dbu_H(pen_lambdas_H, Vt, WHt, Ht)
+            assert not torch.any(torch.isnan(Ht))
 
     @torch.no_grad
     def loss(
@@ -156,25 +160,25 @@ class NMF(torch.nn.Module):
         # T, K = H.shape
         # M, _ = V.shape  # M, K
 
-        Ht = self.Ht
-        Vt = self.Vt
-        W = self.W
+        Ht = self.Ht.detach()
+        Vt = self.Vt.detach()
+        W = self.W.detach()
         WHt = self.reconstruct(Ht, W)
 
         full_loss = self.divergence.compute(Vt.T, WHt.T) / Vt.numel()
-        # assert not torch.any(torch.isnan(full_loss))
+        assert not torch.any(torch.isnan(full_loss))
         full_loss = full_loss.item()
         losses["divergence"] = full_loss
 
         for penalty, lambda_ in zip(self.penalties_H, pen_lambdas_H):
             loss = lambda_ * penalty.compute(Ht) / Ht.numel()
-            # assert not torch.any(torch.isnan(loss))
+            assert not torch.any(torch.isnan(loss))
             losses["penalties_H"][penalty.__class__.__name__] = loss.item()
             full_loss += loss.item()
 
         for penalty, lambda_ in zip(self.penalties_W, pen_lambdas_W):
             loss = lambda_ * penalty.compute(W) / W.numel()
-            # assert not torch.any(torch.isnan(loss))
+            assert not torch.any(torch.isnan(loss))
             losses["penalties_W"][penalty.__class__.__name__] = loss.item()
             full_loss += loss.item()
 
