@@ -6,14 +6,16 @@ import textwrap
 import traceback
 from pathlib import Path
 from pprint import pprint
-import matplotlib.pyplot as plt
+
 import librosa
+import matplotlib.pyplot as plt
 import numpy as np
 import optuna
-from optuna.artifacts import upload_artifact
 import optuna_dashboard
+from optuna.artifacts import upload_artifact
 from optuna_dashboard.artifact import get_artifact_path
 from tqdm import tqdm
+
 
 USE_GPU = False
 
@@ -21,34 +23,33 @@ if USE_GPU:
     import manage_gpus as gpl
 
     gpl.get_gpu_lock()
-import activation_learner
-import pytorch_nmf
-import param_estimator
-import plot
-from nmf.mixes.unmixdb import UnmixDB
 from multiprocessing import Lock
+
 import torch.profiler
 
-# UNMIXDB_PATH = Path("/data2/anasynth_nonbp/andre/unmixdb-zenodo")
-UNMIXDB_PATH = Path("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo/")
-unmixdb = UnmixDB(UNMIXDB_PATH)
+import activation_learner
+import param_estimator
+import plot
+import pytorch_nmf
+from mixes.unmixdb import UnmixDB
+from mixes.synthetic import SyntheticDB
+
+# db = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo/")
+# db = UnmixDB("/data2/anasynth_nonbp/andre/unmixdb-zenodo")
+db = SyntheticDB()
+MIX_NAME = "linear-mix"
 GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
 LOG_NMF_EVERY = 100
 DLOSS_MIN = -np.inf
-ITER_MAX = 500
+ITER_MAX = 1000
 FS = 22050
-MIX_NAME = "set044mix3-none-none-03.mp3"
 
 
-mix = unmixdb.mixes[MIX_NAME]
-input_paths = [unmixdb.reftracks[track["name"]].audio_path for track in mix.tracks] + [
-    mix.audio_path
-]
-pprint(input_paths)
+mix = db.get_mix(MIX_NAME)
 
 # load audios
-inputs = [librosa.load(path, sr=FS)[0] for path in input_paths]
+inputs = mix.as_activation_learner_input()
 base_path = "./artifacts"
 os.makedirs(base_path, exist_ok=True)
 artifact_store = optuna.artifacts.FileSystemArtifactStore(base_path=base_path)
@@ -56,22 +57,28 @@ lock = Lock()
 
 
 def objective(trial: optuna.trial.Trial):
-    hop_size = 0.5
+    hop_size = 0.1
 
     overlap = trial.suggest_float("overlap", 1, 8)
     win_size = hop_size * overlap
-    nmels = 128
-    noise_floor = 0.01
-    divergence = pytorch_nmf.ItakuraSaito()
+    nmels = 512
+    low_power_threshold = 0.1
+    divergence = pytorch_nmf.BetaDivergence(1)
     penalties = [
-        (pytorch_nmf.L1(), trial.suggest_float("l1", 0, 1e4)),
-        (pytorch_nmf.SmoothDiago(), trial.suggest_float("smoothdiago", 0, 1e4)),
-        (pytorch_nmf.SmoothOverCol(), trial.suggest_float("smoothovercol", 0, 1e4)),
-        (pytorch_nmf.SmoothOverRow(), trial.suggest_float("smoothoverrow", 0, 1e4)),
+        (pytorch_nmf.L1(), trial.suggest_float("l1", 1e-4, 1e4, log=True)),
         (
-            pytorch_nmf.Lineness(),
-            trial.suggest_float("lineness", 0, 1e6),
+            pytorch_nmf.SmoothDiago(),
+            trial.suggest_float("smoothdiago", 1e-4, 1e4, log=True),
         ),
+        (
+            pytorch_nmf.SmoothOverCol(),
+            trial.suggest_float("smoothovercol", 1e-4, 1e4, log=True),
+        ),
+        (
+            pytorch_nmf.SmoothOverRow(),
+            trial.suggest_float("smoothoverrow", 1e-4, 1e4, log=True),
+        ),
+        (pytorch_nmf.Lineness(), trial.suggest_float("lineness", 1e-4, 1e6, log=True)),
     ]
 
     try:
@@ -88,7 +95,8 @@ def objective(trial: optuna.trial.Trial):
             hop_size=hop_size,
             penalties=penalties,
             divergence=divergence,
-            low_power_threshold=noise_floor,
+            low_power_threshold=low_power_threshold,
+            spec_power=1,
             use_gpu=USE_GPU,
         )
         #################
@@ -96,17 +104,8 @@ def objective(trial: optuna.trial.Trial):
         logger.info(
             f"Running NMF on V:{learner.nmf.V.shape}, W:{learner.nmf.W.shape}, H:{learner.nmf.H.shape}"
         )
-        loss_history = []
-        loss = np.inf
-        for i in tqdm(itertools.count(), desc=f"Trial {trial.number}", total=ITER_MAX):
-            learner.iterate()
-            if i % 10 == 0:
-                loss, loss_components = learner.loss()
-                loss_history.append(loss_components)
+        loss_history = learner.fit(ITER_MAX)
 
-                if i >= ITER_MAX:
-                    logger.info(f"Stopped at NMF iteration={i} loss={loss}")
-                    break
         #############
         # estimations
 
@@ -175,7 +174,7 @@ def objective(trial: optuna.trial.Trial):
         optuna_dashboard.save_note(trial, note)
 
         plt.close("all")
-        return loss, err_gain, err_warp
+        return loss_history[-1]["divergence"], err_gain, err_warp
     except optuna.TrialPruned:
         raise
     except KeyboardInterrupt:
@@ -190,7 +189,7 @@ def objective(trial: optuna.trial.Trial):
 study = optuna.create_study(
     storage="sqlite:///db.sqlite3",
     # study_name="pouet2",
-    pruner=optuna.pruners.HyperbandPruner(),
+    # pruner=optuna.pruners.HyperbandPruner(),
     sampler=optuna.samplers.NSGAIIISampler(),
     load_if_exists=True,
     # err_gain, err_warp, time_nmf

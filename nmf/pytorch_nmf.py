@@ -5,7 +5,7 @@ from torch.nn import Parameter
 import torch.nn.functional as F
 import abc
 
-EPS = 1e-20
+EPS = 1e-15
 COMPILE = False
 
 
@@ -66,7 +66,6 @@ def _double_backward_update(
     with torch.no_grad():
         if is_param_transposed:
             for penalty, lambda_ in zip(penalties, penalties_lambdas):
-                print(penalty, lambda_)
                 if lambda_ == 0:
                     continue
                 pos.add_(penalty.grad_pos(param.T).T, alpha=lambda_)
@@ -198,6 +197,11 @@ class NMF(torch.nn.Module):
     def H(self):
         return self.Ht.T
 
+    @H.setter
+    def H(self, H: Tensor):
+        assert not torch.any(torch.isnan(H))
+        self.Ht.data.copy_(H.T)
+
 
 ##########################################################################################################
 ##########################################################################################################
@@ -222,17 +226,18 @@ class BetaDivergence(Divergence):
         self.beta = beta
 
     def compute(self, V: Tensor, Vhat: Tensor):
+        V_eps = V.add(EPS)
         Vhat_eps = Vhat.add(EPS)
         if self.beta == 0:
-            ret = V / Vhat_eps - torch.log(V / Vhat_eps) - 1
+            ret = V_eps / Vhat_eps - torch.log(V_eps / Vhat_eps) - 1
         elif self.beta == 1:
-            ret = V * (torch.log(V) - torch.log(Vhat_eps)) + (Vhat_eps - V)
+            ret = V_eps * (torch.log(V_eps) - torch.log(Vhat_eps)) + (Vhat_eps - V_eps)
         else:
             ret = (
                 (
-                    torch.pow(V, self.beta)
+                    torch.pow(V_eps, self.beta)
                     + (self.beta - 1) * torch.pow(Vhat_eps, self.beta)
-                    - self.beta * V * torch.pow(Vhat_eps, self.beta - 1)
+                    - self.beta * V_eps * torch.pow(Vhat_eps, self.beta - 1)
                 )
                 / self.beta
                 / (self.beta - 1)
@@ -244,7 +249,9 @@ class BetaDivergence(Divergence):
         return Vhat_eps.pow(self.beta - 1)
 
     def grad_neg(self, V: Tensor, Vhat: Tensor):
-        return V * Vhat.pow(self.beta - 2)
+        V_eps = V.add(EPS)
+        Vhat_eps = Vhat.add(EPS)
+        return V_eps * Vhat_eps.pow(self.beta - 2)
 
 
 class L1(Penalty):

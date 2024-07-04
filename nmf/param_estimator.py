@@ -33,20 +33,20 @@ def _apply_Hi(model: ActivationLearner, fn: Callable):
     ret = []
     for left, right in zip(model.split_idx, model.split_idx[1:]):
         H_track = model.H[left:right, :]
-        ret.append(fn(H_track))
+        ret.append(fn(H_track.cpu().detach().numpy()))
     return np.array(ret).T
 
 
 class GainEstimator(enum.Enum):
     # @enum.member
     @staticmethod
-    def SUM(model):
-        return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.sum(Hi, axis=0)))
+    def SUM(model, spec_power: float):
+        return _apply_Hi(model, fn=lambda Hi: np.sum(Hi ** (1 / spec_power), axis=0))
 
     # @enum.member
-    # @staticmethod
-    # def MAX(model):
-    #     return _apply_Hi(model, fn=lambda Hi: np.sqrt(np.max(Hi, axis=0)))
+    @staticmethod
+    def MAX(model, spec_power: float):
+        return _apply_Hi(model, fn=lambda Hi: np.max(Hi ** (1 / spec_power), axis=0))
 
 
 class WarpEstimator(enum.Enum):
@@ -56,9 +56,10 @@ class WarpEstimator(enum.Enum):
         return _apply_Hi(model, fn=center_of_mass_columns) * hop_size
 
     # @enum.member
-    # @staticmethod
-    # def ARGMAX(model):
-    #     return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0))
+    @staticmethod
+    def ARGMAX(model, hop_size: float):
+        return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0)) * hop_size
+
 
 def ideal_gain(tau, tau0, a, b, c, g_max):
     tau1 = tau0 + a
@@ -164,12 +165,12 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
     track_start = -warp_intercept / speed
 
     if plot:
-        fig, axes = plt.subplots(2, 1, figsize=(20,6))
+        fig, axes = plt.subplots(2, 1, figsize=(20, 6))
         axes[0].plot(tau, gain, label="input", alpha=0.5)
         axes[0].plot(tau, gain_norm, label="filt")
         axes[0].plot(tau, thresh_gain_mask, label="thresh")
-        axes[0].axvline(tau[longest_slice.start], linestyle='--')
-        axes[0].axvline(tau[longest_slice.stop], linestyle='--')
+        axes[0].axvline(tau[longest_slice.start], linestyle="--")
+        axes[0].axvline(tau[longest_slice.stop], linestyle="--")
         axes[0].plot(
             [fadein_start, fadein_stop, fadeout_start, fadeout_stop],
             [g_min, g_max, g_max, g_min],

@@ -36,11 +36,13 @@ class CrossfadeMix(Mix):
         curve = np.linspace(0, 1, n_fade)
 
         A = self.tracks[0]
-        A_fade = A.audio[-n_fade:] * (1 - curve)
+        A_fade = A.audio[n_fade_start : n_fade_start + n_fade] * (1 - curve)
         B = self.tracks[1]
         B_fade = B.audio[:n_fade] * curve
 
-        return np.concatenate([A.audio[:-n_fade], A_fade + B_fade, B.audio[n_fade:]])
+        return np.concatenate(
+            [A.audio[:n_fade_start], A_fade + B_fade, B.audio[n_fade:]]
+        )
 
     def gain(self, times: np.ndarray) -> np.ndarray:
         gain_B = np.zeros_like(times, dtype=float)
@@ -105,7 +107,8 @@ class TimestretchMix(Mix):
         return np.atleast_2d(np.ones_like(times)).T
 
     def warp(self, times: np.ndarray) -> np.ndarray:
-        return np.atleast_2d(np.interp(times, *zip(*self._timemap))).T
+        x, y = zip(*self._timemap)
+        return np.atleast_2d(np.interp(times, y, x)).T
 
     @property
     def tracks(self):
@@ -123,5 +126,5 @@ class SyntheticDB(Dataset):
             CrossfadeMix("linear-mix", DEADMAU5_A, DEADMAU5_B, 3.75, 7.5),
             CrossfadeMix("linear-mix-desync", DEADMAU5_A, DEADMAU5_B, 3.6, 7.5),
             CrossfadeMix("nuttah-deadmau5", NUTTAH, DEADMAU5_B, 2, 5),
-            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (2,2), (3, 5)], 8),
+            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 3), (4, 5)], 8),
         ]

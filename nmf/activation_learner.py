@@ -11,7 +11,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 
-def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
+def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len, power):
     spec = librosa.stft(
         input,
         n_fft=win_len,
@@ -21,7 +21,7 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len):
         window=stft_win_func,
     )
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
-    melspec = mel_f.dot(abs(spec) ** 2)
+    melspec = mel_f.dot(abs(spec) ** power)
 
     return melspec, spec
 
@@ -59,6 +59,7 @@ class ActivationLearner:
         hop_size: float,
         divergence: Divergence,
         penalties: Sequence[tuple[Penalty, Union[float, Warmup]]],
+        spec_power: float,
         stft_win_func: str = "hann",
         n_mels: int = 512,
         low_power_threshold: float = 0.01,
@@ -88,6 +89,7 @@ class ActivationLearner:
                     stft_win_func=stft_win_func,
                     win_len=win_len,
                     hop_len=hop_len,
+                    power=spec_power,
                 )
                 for i in inputs
             ]
@@ -108,17 +110,22 @@ class ActivationLearner:
 
         # normalize W and V
         W_col_power = W.sum(axis=0, keepdims=True)
-        W_ignored_cols = W_col_power < low_power_threshold
+        W_ignored_cols = W_col_power / W.shape[0] < low_power_threshold
+        if np.any(W_ignored_cols):
+            logger.warning(f"Ignored columns: {np.where(W_ignored_cols)[1]}")
+
         W_col_power[W_ignored_cols] = 1
         V_norm_fac = V.sum()
         W = W / W_col_power
         V = V / V_norm_fac
 
-        self.W_norm_fac = W_col_power
+        self.W_norm_fac = torch.Tensor(W_col_power)
         self.V_norm_fac = V_norm_fac
+        self.W_ignored_cols = torch.from_numpy(W_ignored_cols)
 
         # initialize activation matrix
-        H = np.random.rand(W.shape[1], V.shape[1])
+        # H = np.random.rand(W.shape[1], V.shape[1])
+        H = np.ones((W.shape[1], V.shape[1]))
         H[W_ignored_cols.flatten(), :] = 0
 
         logger.info(f"Shape of W: {W.shape}")
@@ -146,22 +153,21 @@ class ActivationLearner:
         )
         loss_history = []
         loss = np.inf
-        for i in tqdm(range(iter_max)):
+        for i in (pbar := tqdm(range(iter_max))):
             pen_lambdas = [
                 w.get(i) if isinstance(w, Warmup) else w for w in self.pen_warmups
             ]
             self.nmf.iterate([], pen_lambdas)
             with torch.no_grad():
-                self.nmf.H.clamp_(
-                    max=torch.Tensor(self.W_norm_fac.T / self.V_norm_fac)
-                )
+                self.nmf.H.clamp_(max=torch.Tensor(self.W_norm_fac.T / self.V_norm_fac))
 
             if i % loss_every == 0:
                 loss, loss_components = self.loss(pen_lambdas)
                 loss_history.append(loss_components)
+                pbar.set_description(f"Loss={loss:.2e}")
 
             if i >= iter_max:
-                logger.info(f"Stopped at NMF iteration={i} loss={loss}")
+                logger.info(f"Stopped at NMF iteration={i} loss={loss:.2e}")
                 break
         return loss_history
 
@@ -169,6 +175,7 @@ class ActivationLearner:
         full_loss, losses = self.nmf.loss([], pen_lambdas)
         losses["penalties"] = losses["penalties_H"]
         del losses["penalties_W"]
+        del losses["penalties_H"]
         return full_loss, losses
 
     def reconstruct_tracks(self):
@@ -203,13 +210,18 @@ class ActivationLearner:
         return audio
 
     @property
-    def H(self):
-        return self.nmf.H.cpu().detach().numpy() * self.V_norm_fac / self.W_norm_fac.T
+    def H(self) -> torch.Tensor:
+        return self.nmf.H * self.V_norm_fac / self.W_norm_fac.T
+
+    @H.setter
+    def H(self, value: torch.Tensor):
+        value[self.W_ignored_cols.flatten(), :] = 0
+        self.nmf.H = value / self.V_norm_fac * self.W_norm_fac.T
 
     @property
     def W(self):
-        return self.nmf.W.cpu().detach().numpy() * self.W_norm_fac
+        return self.nmf.W * self.W_norm_fac
 
     @property
     def V(self):
-        return self.nmf.V.cpu().detach().numpy() * self.V_norm_fac
+        return self.nmf.V * self.V_norm_fac

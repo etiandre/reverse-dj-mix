@@ -71,6 +71,9 @@ class Mix(abc.ABC):
     def duration(self):
         return len(self.audio) / FS
 
+    def as_activation_learner_input(self) -> list[np.ndarray]:
+        return [i.audio for i in self.tracks] + [self.audio]
+
 
 class FromFileMix(Mix):
     def __init__(self, audio_path: Union[Path, str]) -> None:
