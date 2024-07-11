@@ -25,21 +25,20 @@ if USE_GPU:
     gpl.get_gpu_lock()
 from multiprocessing import Lock
 
-import torch.profiler
-
 import activation_learner
 import param_estimator
 import plot
 import pytorch_nmf
 from mixes.unmixdb import UnmixDB
 from mixes.synthetic import SyntheticDB
+import carve
 
 # db = UnmixDB("/data2/anasynth_nonbp/schwarz/abc-dj/data/unmixdb-zenodo/")
 # db = UnmixDB("/data2/anasynth_nonbp/andre/unmixdb-zenodo")
 db = SyntheticDB()
 MIX_NAME = "linear-mix"
 GAIN_ESTOR = param_estimator.GainEstimator.SUM
-WARP_ESTOR = param_estimator.WarpEstimator.CENTER_OF_MASS
+WARP_ESTOR = param_estimator.WarpEstimator.ARGMAX
 LOG_NMF_EVERY = 100
 DLOSS_MIN = -np.inf
 ITER_MAX = 1000
@@ -57,55 +56,62 @@ lock = Lock()
 
 
 def objective(trial: optuna.trial.Trial):
-    hop_size = 0.1
-
-    overlap = trial.suggest_float("overlap", 1, 8)
-    win_size = hop_size * overlap
-    nmels = 512
+    hops = [1, 0.5, 0.1]
+    overlap = 4
+    nmels = 256
     low_power_threshold = 0.1
-    divergence = pytorch_nmf.BetaDivergence(1)
-    penalties = [
-        (pytorch_nmf.L1(), trial.suggest_float("l1", 1e-4, 1e4, log=True)),
-        (
-            pytorch_nmf.SmoothDiago(),
-            trial.suggest_float("smoothdiago", 1e-4, 1e4, log=True),
-        ),
-        (
-            pytorch_nmf.SmoothOverCol(),
-            trial.suggest_float("smoothovercol", 1e-4, 1e4, log=True),
-        ),
-        (
-            pytorch_nmf.SmoothOverRow(),
-            trial.suggest_float("smoothoverrow", 1e-4, 1e4, log=True),
-        ),
-        (pytorch_nmf.Lineness(), trial.suggest_float("lineness", 1e-4, 1e6, log=True)),
-    ]
+    spec_power = 2
+    learners: list[activation_learner.ActivationLearner] = []
+    logger = logging.getLogger(MIX_NAME)
+    logging.basicConfig()
+    logger.setLevel(logging.DEBUG)
 
     try:
-        logger = logging.getLogger(MIX_NAME)
-        logging.basicConfig()
-        logger.setLevel(logging.DEBUG)
-        logger.info(f"Starting round with {hop_size=}s, {win_size=}s")
+        for hop_size in hops:
+            win_size = hop_size * overlap
+            divergence = pytorch_nmf.BetaDivergence(0)
+            penalties = [
+                (pytorch_nmf.L1(), trial.suggest_float("l1", 1e-4, 1e4, log=True)),
+                (
+                    pytorch_nmf.SmoothDiago(),
+                    trial.suggest_float("diago", 1e-4, 1e4, log=True),
+                ),
+                (
+                    pytorch_nmf.Lineness(),
+                    trial.suggest_float("lineness", 1e-4, 1e4, log=True),
+                ),
+            ]
 
-        learner = activation_learner.ActivationLearner(
-            inputs,
-            fs=FS,
-            n_mels=nmels,
-            win_size=win_size,
-            hop_size=hop_size,
-            penalties=penalties,
-            divergence=divergence,
-            low_power_threshold=low_power_threshold,
-            spec_power=1,
-            use_gpu=USE_GPU,
-        )
-        #################
-        # iterate
-        logger.info(
-            f"Running NMF on V:{learner.nmf.V.shape}, W:{learner.nmf.W.shape}, H:{learner.nmf.H.shape}"
-        )
-        loss_history = learner.fit(ITER_MAX)
+            logger.info(f"Starting round with {hop_size=}s, {win_size=}s")
 
+            learner = activation_learner.ActivationLearner(
+                inputs,
+                fs=FS,
+                n_mels=nmels,
+                win_size=win_size,
+                hop_size=hop_size,
+                penalties=penalties,
+                divergence=divergence,
+                low_power_threshold=low_power_threshold,
+                use_gpu=USE_GPU,
+                spec_power=spec_power,
+                stft_win_func="blackman",
+            )
+
+            # carve and resize H from previous round
+            if len(learners) > 0:
+                new_H = carve.resize_then_carve(
+                    learners[-1].H, learner.H.shape, 1e-3, 3, "bilinear"
+                )
+                plt.figure("H after resizing and carving")
+                plot.plot_H(new_H.cpu().detach().numpy())
+                plt.show()
+
+                learner.H = new_H
+
+            loss_history = learner.fit(2000)
+
+            learners.append(learner)
         #############
         # estimations
 
@@ -115,7 +121,7 @@ def objective(trial: optuna.trial.Trial):
         real_warp = mix.warp(tau)
 
         # estimate gain
-        est_gain = GAIN_ESTOR(learner)
+        est_gain = GAIN_ESTOR(learner, spec_power)
         err_gain = param_estimator.error(est_gain, real_gain)
 
         # estimate warp

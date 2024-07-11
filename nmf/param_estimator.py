@@ -4,6 +4,7 @@ import enum
 from activation_learner import ActivationLearner
 import scipy.stats
 import matplotlib.pyplot as plt
+import torch
 
 
 def center_of_mass_columns(matrix: np.ndarray):
@@ -29,10 +30,10 @@ def error(est: np.ndarray, real: np.ndarray):
     return float(abs_error)
 
 
-def _apply_Hi(model: ActivationLearner, fn: Callable):
+def _apply_Hi(H: torch.Tensor, split_idx: list[int], fn: Callable):
     ret = []
-    for left, right in zip(model.split_idx, model.split_idx[1:]):
-        H_track = model.H[left:right, :]
+    for left, right in zip(split_idx, split_idx[1:]):
+        H_track = H[left:right, :]
         ret.append(fn(H_track.cpu().detach().numpy()))
     return np.array(ret).T
 
@@ -40,25 +41,29 @@ def _apply_Hi(model: ActivationLearner, fn: Callable):
 class GainEstimator(enum.Enum):
     # @enum.member
     @staticmethod
-    def SUM(model, spec_power: float):
-        return _apply_Hi(model, fn=lambda Hi: np.sum(Hi ** (1 / spec_power), axis=0))
+    def SUM(H: torch.Tensor, split_idx: list[int], spec_power: float):
+        return _apply_Hi(
+            H, split_idx, fn=lambda Hi: np.sum(Hi, axis=0) ** (1 / spec_power)
+        )
 
     # @enum.member
     @staticmethod
-    def MAX(model, spec_power: float):
-        return _apply_Hi(model, fn=lambda Hi: np.max(Hi ** (1 / spec_power), axis=0))
+    def MAX(H: torch.Tensor, split_idx: list[int], spec_power: float):
+        return _apply_Hi(
+            H, split_idx, fn=lambda Hi: np.max(Hi, axis=0) ** (1 / spec_power)
+        )
 
 
 class WarpEstimator(enum.Enum):
     # @enum.member
     @staticmethod
-    def CENTER_OF_MASS(model, hop_size: float):
-        return _apply_Hi(model, fn=center_of_mass_columns) * hop_size
+    def CENTER_OF_MASS(H: torch.Tensor, split_idx: list[int], hop_size: float):
+        return _apply_Hi(H, split_idx, fn=center_of_mass_columns) * hop_size
 
     # @enum.member
     @staticmethod
-    def ARGMAX(model, hop_size: float):
-        return _apply_Hi(model, fn=lambda Hi: np.argmax(Hi, axis=0)) * hop_size
+    def ARGMAX(H: torch.Tensor, split_idx: list[int], hop_size: float):
+        return _apply_Hi(H, split_idx, fn=lambda Hi: np.argmax(Hi, axis=0)) * hop_size
 
 
 def ideal_gain(tau, tau0, a, b, c, g_max):

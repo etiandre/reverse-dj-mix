@@ -34,7 +34,9 @@ def plot_carve_resize(H_carved: np.ndarray, H_carved_resized: np.ndarray):
     fig.colorbar(im, ax=plt.gca())  # Add colorbar to the first subplot
     plt.subplot(1, 2, 2)
     plt.title("H resized")
-    im = imshow_highlight_zero(H_carved_resized, cmap="turbo", origin="lower", aspect="auto")
+    im = imshow_highlight_zero(
+        H_carved_resized, cmap="turbo", origin="lower", aspect="auto"
+    )
     fig.colorbar(im, ax=plt.gca())  # Add colorbar to the second subplot
     return fig
 
@@ -78,7 +80,7 @@ def plot_warp(
         plot_pos(ground_truth, True)
     ax.legend()
     ax.set_xlabel("mix time (s)")
-    ax.set_ylabel("ref frame")
+    ax.set_ylabel("track time (s)")
 
 
 def plot_gain(
@@ -141,17 +143,17 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
 def plot_nmf(model: ActivationLearner):
     fig, axes = plt.subplots(2, 2, figsize=(15, 6))
 
-    im = plot_H(model.H.cpu().detach().numpy(), model.split_idx, ax=axes[0, 0])
+    im = plot_pow_spec(model.V.cpu().detach().numpy(), ax=axes[0, 0])
     fig.colorbar(im, ax=axes[0, 0])
-    axes[0, 0].set_title("H")
+    axes[0, 0].set_title("V")
 
-    im = plot_pow_spec(model.W.cpu().detach().numpy(), model.split_idx, ax=axes[0, 1])
+    im = plot_H(model.H.cpu().detach().numpy(), model.split_idx, ax=axes[0, 1])
     fig.colorbar(im, ax=axes[0, 1])
-    axes[0, 1].set_title("W")
+    axes[0, 1].set_title("H")
 
-    im = plot_pow_spec(model.V.cpu().detach().numpy(), ax=axes[1, 0])
+    im = plot_pow_spec(model.W.cpu().detach().numpy(), model.split_idx, ax=axes[1, 0])
     fig.colorbar(im, ax=axes[1, 0])
-    axes[1, 0].set_title("V")
+    axes[1, 0].set_title("W")
 
     im = plot_pow_spec((model.W @ model.H).cpu().detach().numpy(), ax=axes[1, 1])
     fig.colorbar(im, ax=axes[1, 1])

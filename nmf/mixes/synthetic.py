@@ -126,5 +126,5 @@ class SyntheticDB(Dataset):
             CrossfadeMix("linear-mix", DEADMAU5_A, DEADMAU5_B, 3.75, 7.5),
             CrossfadeMix("linear-mix-desync", DEADMAU5_A, DEADMAU5_B, 3.6, 7.5),
             CrossfadeMix("nuttah-deadmau5", NUTTAH, DEADMAU5_B, 2, 5),
-            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 3), (4, 5)], 8),
+            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2), (4, 5)], 8),
         ]

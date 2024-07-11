@@ -1,5 +1,5 @@
 import abc
-from typing import Sequence, Union
+from typing import Optional, Sequence, Union
 import numpy as np
 import librosa
 import logging
@@ -17,7 +17,7 @@ def _transform_melspec(input, fs, n_mels, stft_win_func, win_len, hop_len, power
         n_fft=win_len,
         hop_length=hop_len,
         win_length=win_len,
-        center=False,
+        center=True,
         window=stft_win_func,
     )
     mel_f = librosa.filters.mel(sr=fs, n_fft=win_len, n_mels=n_mels)
@@ -147,12 +147,15 @@ class ActivationLearner:
             trainable_W=False,
         ).to(device)
 
-    def fit(self, iter_max: int, loss_every: int = 50):
+    def fit(
+        self, iter_max: int, loss_every: int = 50, dloss_min: Optional[float] = None
+    ):
         logger.info(
             f"Running NMF on V:{self.nmf.V.shape}, W:{self.nmf.W.shape}, H:{self.nmf.H.shape}"
         )
         loss_history = []
         loss = np.inf
+        last_loss = np.inf
         for i in (pbar := tqdm(range(iter_max))):
             pen_lambdas = [
                 w.get(i) if isinstance(w, Warmup) else w for w in self.pen_warmups
@@ -163,12 +166,17 @@ class ActivationLearner:
 
             if i % loss_every == 0:
                 loss, loss_components = self.loss(pen_lambdas)
+                dloss = (last_loss - loss) / loss_every
+                pbar.set_description(f"Loss={loss:.2e}, dLoss = {dloss:.2e}")
+                last_loss = loss
                 loss_history.append(loss_components)
-                pbar.set_description(f"Loss={loss:.2e}")
+
+                if dloss_min is not None and dloss <= dloss_min:
+                    break
 
             if i >= iter_max:
-                logger.info(f"Stopped at NMF iteration={i} loss={loss:.2e}")
                 break
+        logger.info(f"Stopped at NMF iteration={i} loss={loss:.2e}")
         return loss_history
 
     def loss(self, pen_lambdas: list[float]):
@@ -190,7 +198,7 @@ class ActivationLearner:
                 n_fft=int(self.fs * self.win_size),
                 hop_length=int(self.fs * self.hop_size),
                 win_length=int(self.fs * self.win_size),
-                center=False,
+                center=True,
                 window=self.stft_win_func,
             )
             ret.append(audio)
@@ -204,7 +212,7 @@ class ActivationLearner:
             n_fft=int(self.fs * self.win_size),
             hop_length=int(self.fs * self.hop_size),
             win_length=int(self.fs * self.win_size),
-            center=False,
+            center=True,
             window=self.stft_win_func,
         )
         return audio
