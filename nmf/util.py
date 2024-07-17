@@ -3,6 +3,12 @@ import scipy.signal
 import pydub
 
 def fade(a: np.ndarray, b: np.ndarray, l: int):
+    """
+    linear fade between 2 signals
+    a: signal 1
+    b: signal 2
+    l: fade duration in samples
+    """
     curve = np.linspace(0, 1, l)
     a_fade = a[-l:] * (1 - curve)
     b_fade = b[:l] * curve
