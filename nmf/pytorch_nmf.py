@@ -280,18 +280,7 @@ class L2(Penalty):
         return 2 * X
 
 
-class SmoothOverCol(Penalty):
-    """
-    Attempt to smooth the gain.
-    $
-    cal(P)_g (bold(H)) &= sum_(tau=1)^(K-1) sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1))^2 \
-    $
-    
-    gradient_bold(H)^+ cal(P)_g = 4 bold(H) \
-    (gradient_bold(H)^- cal(P)_g)_(i j) = 2 (bold(H)_(i,j-1) + bold(H)_(i,j+1))
-    
-    """
-
+class SmoothGain(Penalty):
     def compute(self, X: Tensor):
         return X.diff(dim=1).square().sum()
 
@@ -306,26 +295,6 @@ class SmoothOverCol(Penalty):
 
 
 class SmoothDiago(Penalty):
-    """
-    Smooth diagonal penalty.
-
-    The penalty is calculated as the sum of squared differences between diagonally adjacent elements in the matrix X:
-
-        R(X) = sum_{i=1}^{T-1} sum_{j=1}^{K-1} (X_{i, j} - X_{i+1, j+1})^2
-
-    It encourages smoothness along the diagonal of the matrix.
-
-    Its gradient with respect to X is:
-
-    Negative gradient (excluding edges):
-
-        (grad_neg(R))_{i, j} = 2 * (X_{i+1, j+1} + X_{i-1, j-1})
-
-    Positive gradient:
-
-        (grad_pos(R)) = 4 * X
-    """
-
     def compute(self, X: Tensor):
         return torch.sum((X[:-1, :-1] - X[1:, 1:]) ** 2)
 
@@ -361,7 +330,6 @@ class Lineness(Penalty):
     def grad_pos(self, X: Tensor):
         ret = torch.zeros_like(X)
 
-        # Extract the submatrices of X needed for the calculation
         X_ip1_jp1 = X[2:, 2:]  # shifted by +1 in both dims
         X_ip1_j = X[2:, 1:-1]  # shifted by +1 in the row dim
         X_i_jp1 = X[1:-1, 2:]  # shifted by +1 in the column dim
@@ -371,7 +339,6 @@ class Lineness(Penalty):
         X_ip1_jm1 = X[2:, :-2]  # shifted by +1 in the row dim, -1 in the column dim
         X_im1_jm1 = X[:-2, :-2]  # shifted by -1 in both dims
 
-        # Perform the main computation using the extracted submatrices
         ret[1:-1, 1:-1] = (
             X_i_jp1 * X_ip1_jp1
             + X_ip1_j * X_ip1_jp1

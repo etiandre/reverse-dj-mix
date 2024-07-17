@@ -9,7 +9,8 @@
   bibliography: bibliography("../../zotero.bib"),
   figure-index: (enabled: true),
   table-index: (enabled: true),
-  listing-index: (enabled: true)
+  listing-index: (enabled: true),
+  table-of-contents: none
 )
 
 
@@ -159,6 +160,13 @@ So the ideal kernel $bold(H)$ above is still clearly a solution of the transform
 
 We can exploit this representation to reduce the number of frequency bins, thus reducing the algorithmic complexity.
 
+=== Source Reconstruction
+
+The spectrogram of a given source can be reconstructed as follows:
+$
+bold(Y)_((i)) = bold(Y) dot.circle (bold(W)_((i))bold(H)_((i))) #oslash (bold(W)bold(H))
+$
+
 = Estimator robustness
 We define the following estimators:
 
@@ -178,18 +186,21 @@ We will now study the robustness of our estimators to other sources of indetermi
 To improve the numeric stability of NMF and prevent explosion, the columns of X are usually normalized to sum to 1:
 $bold(X)^"norm"_(m t) eq.def bold(X)_(m t) / bold(k)_t$ with $bold(k)_t = sum_i bold(X)_(i t)$
 
+We normalize $bold(Y)$ this way:
+$bold(Y)^"norm" eq.def bold(Y) / kappa$ with $kappa=sum_i sum_t bold(Y)_(i t)$
+
+
 Using @xy-relation:
 $
-bold(Y)_(m tau) =  bold(k)_t g[tau]^2 bold(X)^"norm"_(m, f[tau])
+bold(Y)^"norm"_(m tau) =  bold(k)_t / kappa g[tau]^2 bold(X)^"norm"_(m, f[tau]) 
 $
 
 We can then deduce the ideal normalized kernel $bold(H)^"norm"$ as a solution to @matmul:
 
 $
-bold(H)^"norm"_(t tau) &eq.def bold(k)_t g[tau]^2 delta_(t,f[tau]) \
-&= bold(k)_t bold(H)_(t tau)
+bold(H)^"norm"_(t tau) &eq.def bold(k)_t / kappa g[tau]^2 delta_(t,f[tau]) \
+&= bold(k)_t / kappa bold(H)_(t tau)
 $
-
 
 
 == Similar sounds in the source signal
@@ -210,8 +221,8 @@ Thus, there may not be an exact match between $overline(t)$ and $overline(tau)$:
 
 = Penalty functions for NMF
 
-Given the nature of musical signals, we expect $f$ and $g$ to have certain properties:
-+ $g(tau)$ should be relatively smooth <g-smooth>
+Given the nature of DJ mixes, we expect $f$ and $g$ to have certain properties, from which we define additional penalty functions:
++ $g(tau)$ should be relatively smooth
   - $g'(tau)$ should be small
 + $f(tau)$ should be piecewise linear (alternatively, piecewise continuous in the case of varying speeds)
 + $f(tau)$ should be injective
@@ -219,7 +230,11 @@ Given the nature of musical signals, we expect $f$ and $g$ to have certain prope
 
 == Gain smoothness
 
-we want to minimize $forall tau in [1...K]$:
+We expect $g(tau)$ to be varying smoothly over time. Thus we introduce the *gain smoothness* penalty, that minimizes the difference between two consecutive gain values.
+
+Given that the gain of the column is given by 
+$ g[tau] = sqrt(sum_(t=0)^(T-1) bold(H)_(t tau) ) $
+
 $
 g[tau]^2 - g[tau-1]^2 &= sum_(t=0)^(T-1) bold(H)_(t tau) - sum_(t=0)^(T-1) bold(H)_(t, tau-1) \
 &= sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1)) 
@@ -227,10 +242,77 @@ $
 So we define the penality function:
 
 $
-cal(C)_g^"sum" (bold(H)) &= sum_(tau=1)^(K-1) sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1)) \
+cal(P)_g (bold(H)) &= sum_(tau=1)^(K-1) sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1))^2 \
 $
 
-Alternatively, using the max gain estimator ?
+*gradient calculation*
 $
-cal(C)_g^"max" (bold(H)) = sum_(tau=1)^(K-1) (max_(t in [0...T-1]) bold(H)_(t tau) - max_(t in [0...T-1]) bold(H)_(t, tau-1))
+partial / (partial bold(H)_(i j)) (bold(H)_(t tau) - bold(H)_(t, tau-1))^2 = cases(
+  2(bold(H)_(i j) - bold(H)_(i, j-1)) &"if" i=t "and" j=tau,
+  -2(bold(H)_(i,j+1) - bold(H)_(i j)) &"if" i=t "and" j+1=tau,
+  0 &"otherwise"
+)
+$
+
+So:
+$
+(partial cal(P)_g) / (partial bold(H)_(i j)) &= 2(bold(H)_(i j) - bold(H)_(i, j-1)) -2(bold(H)_(i,j+1) - bold(H)_(i j)) \
+ &= 4 bold(H)_(i j) - 2 (bold(H)_(i,j-1) + bold(H)_(i,j+1))
+$
+
+*gradient term separation*:
+$
+gradient_bold(H)^+ cal(P)_g = 4 bold(H) \
+(gradient_bold(H)^- cal(P)_g)_(i j) = 2 (bold(H)_(i,j-1) + bold(H)_(i,j+1))
+$
+
+== Diagonal smoothness
+
+We hypothesize the tracks to be played near their original speed, and that there will be significant time intervals without any loops or jumps. This appears in $bold(H)$ as diagonal line structures. We define a *diagonal smoothness* penalty that minimises the difference between diagonal cells of $bold(H)$:
+
+$
+cal(P)_d (bold(H)) = sum_(t=1)^(T-1) sum_(tau=1)^(K-1) (bold(H)_(t,tau) - bold(H)_(t-1, tau-1))^2
+$
+*gradient calculation*
+$
+partial / (partial bold(H)_(i j)) (bold(H)_(t tau) - bold(H)_(t-1, tau-1))^2 = cases(
+  2(bold(H)_(i j) - bold(H)_(i-1, j-1)) &"if" i=t "and" j=tau,
+  -2(bold(H)_(i+1,j+1) - bold(H)_(i j)) &"if" i+1=t "and" j+1=tau,
+  0 &"otherwise"
+)
+$
+
+So:
+$
+(partial cal(P)_d) / (partial bold(H)_(i j)) &= 2(bold(H)_(i j) - bold(H)_(i-1, j-1)) -2(bold(H)_(i+1,j+1) - bold(H)_(i j)) \
+ &= 4 bold(H)_(i j) - 2 (bold(H)_(i-1,j-1) + bold(H)_(i+1,j+1))
+$
+
+*gradient term separation*:
+$
+gradient_bold(H)^+ cal(P)_d = 4 bold(H) \
+(gradient_bold(H)^- cal(P)_d)_(i j) = 2 (bold(H)_(i-1,j-1) + bold(H)_(i+1,j+1))
+$
+
+== Lineness
+
+The time-remapping function is expected to be piecewise continuous. In $bold(H)$, this means we can characterize the neighboring cells of a given activation. Given an activated cell $(i,j)$, only the up direction $(i+1,j)$, right direction $(i,j+1)$, or upper-right diagonal direction $(i+1, j+1)$ should be activated, but not any combination of the three.
+
+Thus we define the *lineness* penalty below, that gets larger when more than one of these direction are activated near an activated cell:
+
+$
+cal(P)_l (bold(H)) &= sum_(t=0)^(T-2) sum_(tau=0)^(K-2) bold(H)_(t,tau) (bold(H)_(t,tau+1) bold(H)_(t+1,tau+1) + bold(H)_(t+1,tau) bold(H)_(t+1,tau+1) + bold(H)_(t+1,tau) bold(H)_(t,tau+1) )
+$
+
+*gradient calculation and separation*
+$
+(partial cal(P)_l) / (partial bold(H)_(i j))  =gradient_bold(H)^+ cal(P)_l &= bold(H)_(i,j+1) bold(H)_(i+1,j+1) + bold(H)_(i+1,j) bold(H)_(i+1,j+1) + bold(H)_(i+1,j) bold(H)_(i,j+1) \
+&+ bold(H)_(i-1,j) bold(H)_(i,j+1) + bold(H)_(i-1,j) bold(H)_(i-1,j+1) \
+&+ bold(H)_(i,j-1) bold(H)_(i+1,j) + bold(H)_(i,j-1) bold(H)_(i+1,j-1) \
+&+ bold(H)_(i-1,j-1) bold(H)_(i-1,j) + bold(H)_(i-1,j-1) bold(H)_(i,j-1) \
+gradient_bold(H)^- cal(P)_l &= 0
+$
+
+$
+
 $
