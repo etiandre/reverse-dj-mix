@@ -72,14 +72,12 @@ def resize_then_carve(
     for left, right in zip(split_idx, split_idx[1:]):
         Hi_np = H[left:right, :].cpu().detach().numpy()
 
-        # TODO: angles like in librosa.segment.path_enhance
         Hi_np_enhanced = np.zeros_like(Hi_np)
         for slope in np.logspace(
             np.log2(min_slope), np.log2(max_slope), num=n_filters, base=2
         ):
             kernel = line_kernel(diag_size, slope)
             
-            # TODO does not do waht its supposed to do
             np.maximum(
                 Hi_np_enhanced,
                 skimage.morphology.opening(Hi_np, kernel),

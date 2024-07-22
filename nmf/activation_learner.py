@@ -7,6 +7,7 @@ import logging
 from tqdm import tqdm
 from pytorch_nmf import EPS, Divergence, Penalty, NMF
 import torch
+import carve
 
 logger = logging.getLogger(__name__)
 
@@ -233,3 +234,61 @@ class ActivationLearner:
     @property
     def V(self):
         return self.nmf.V * self.V_norm_fac
+
+
+def multistage(
+    inputs,
+    fs,
+    hops: list[float],
+    overlap: float,
+    nmels: int,
+    low_power_threshold: float,
+    spec_power: float,
+    divergence: Divergence,
+    iter_max: float,
+    dloss_min: float,
+    carve_threshold: float,
+    carve_blur_size: int,
+    carve_min_duration: float,
+    carve_max_slope: float,
+):
+    learners: list[ActivationLearner] = []
+
+    for hop_size in hops:
+        win_size = hop_size * overlap
+
+        logger.info(f"Starting round with {hop_size=}s, {win_size=}s")
+
+        learner = ActivationLearner(
+            inputs,
+            fs=fs,
+            n_mels=nmels,
+            win_size=win_size,
+            hop_size=hop_size,
+            divergence=divergence,
+            penalties=[],
+            low_power_threshold=low_power_threshold,
+            use_gpu=False,
+            spec_power=spec_power,
+            stft_win_func="barthann",
+        )
+
+        # carve and resize H from previous round
+        if len(learners) > 0:
+            new_H = carve.resize_then_carve(
+                learners[-1].H,
+                learner.H.shape,
+                learners[-1].split_idx,
+                carve_threshold,
+                carve_blur_size,
+                diag_size=min(2, int(carve_min_duration / hop_size)),
+                max_slope=carve_max_slope,
+                n_filters=7,
+            )
+
+            learner.H = new_H
+
+        loss_history = learner.fit(iter_max, dloss_min=dloss_min)
+
+        learners.append(learner)
+    return learners[-1], loss_history
