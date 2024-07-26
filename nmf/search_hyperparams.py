@@ -100,7 +100,7 @@ def objective(trial: optuna.trial.Trial):
 
             # carve and resize H from previous round
             if len(learners) > 0:
-                new_H = carve.resize_then_carve(
+                new_H = carve.H_interpass_enhance(
                     learners[-1].H, learner.H.shape, 1e-3, 3, "bilinear"
                 )
                 plt.figure("H after resizing and carving")

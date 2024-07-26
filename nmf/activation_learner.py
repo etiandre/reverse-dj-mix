@@ -8,6 +8,8 @@ from tqdm import tqdm
 from pytorch_nmf import EPS, Divergence, Penalty, NMF
 import torch
 import carve
+import plot
+import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +131,6 @@ class ActivationLearner:
         H = np.ones((W.shape[1], V.shape[1]))
         H[W_ignored_cols.flatten(), :] = 0
 
-        logger.info(f"Shape of W: {W.shape}")
-        logger.info(f"Shape of H: {H.shape}")
-        logger.info(f"Shape of V: {V.shape}")
-
         device = torch.device("cuda") if use_gpu else torch.device("cpu")
         if len(penalties) == 0:
             pen_func, self.pen_warmups = [], []
@@ -220,7 +218,9 @@ class ActivationLearner:
 
     @property
     def H(self) -> torch.Tensor:
-        return self.nmf.H * self.V_norm_fac / self.W_norm_fac.T
+        ret = self.nmf.H.detach().clone()
+        ret[self.W_ignored_cols.flatten(), :] = 0
+        return ret * self.V_norm_fac / self.W_norm_fac.T
 
     @H.setter
     def H(self, value: torch.Tensor):
@@ -251,6 +251,7 @@ def multistage(
     carve_blur_size: int,
     carve_min_duration: float,
     carve_max_slope: float,
+    doplot: bool = False,
 ):
     learners: list[ActivationLearner] = []
 
@@ -275,20 +276,31 @@ def multistage(
 
         # carve and resize H from previous round
         if len(learners) > 0:
-            new_H = carve.resize_then_carve(
+            new_H = carve.H_interpass_enhance(
                 learners[-1].H,
                 learner.H.shape,
                 learners[-1].split_idx,
                 carve_threshold,
                 carve_blur_size,
-                diag_size=min(2, int(carve_min_duration / hop_size)),
+                diag_size=max(2, int(carve_min_duration / hop_size)),
                 max_slope=carve_max_slope,
-                n_filters=7,
+                n_filters=15,
+                diag_window="hann",
             )
+            if doplot:
+                plt.figure("H after resizing and carving")
+                im=plot.plot_H(new_H.cpu().detach().numpy())
+                plt.colorbar(im)
+                plt.show()
 
             learner.H = new_H
 
         loss_history = learner.fit(iter_max, dloss_min=dloss_min)
-
+        if doplot:
+            plot.plot_nmf(learner)
+            plt.show()
+            plt.figure()
+            plot.plot_loss_history(loss_history)
+            plt.show()
         learners.append(learner)
     return learners[-1], loss_history

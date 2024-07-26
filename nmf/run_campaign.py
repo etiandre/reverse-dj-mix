@@ -1,8 +1,10 @@
 import datetime
 import itertools
+import json
 import logging
 import os
 import pickle
+from random import shuffle
 import time
 from pathlib import Path
 
@@ -31,6 +33,10 @@ DIVERGENCE = BetaDivergence(0)
 GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.ARGMAX
 LOW_POWER_THRESHOLD = 0.01
+CARVE_THRESHOLD = 1e-3
+CARVE_BLUR_SIZE = 3
+CARVE_MIN_DURATION = 40
+CARVE_MAX_SLOPE = 1.5
 # stop conditions
 DLOSS_MIN = 1e-8
 ITER_MAX = 5000
@@ -46,28 +52,22 @@ os.makedirs(RESULTS_DIR / f"{date}")
 logFormatter = logging.Formatter(
     "%(asctime)s [%(name)-23.23s] [%(levelname)-5.5s]  %(message)s"
 )
-rootLogger = logging.getLogger()
-rootLogger.setLevel(logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 consoleHandler = logging.StreamHandler()
 consoleHandler.setFormatter(logFormatter)
-rootLogger.addHandler(consoleHandler)
+logger.addHandler(consoleHandler)
+fileHandler = logging.FileHandler(RESULTS_DIR / f"{date}/output.log")
+fileHandler.setFormatter(logFormatter)
+logger.addHandler(fileHandler)
 
 unmixdb = UnmixDB(UNMIXDB_PATH)
-# unmixdb = UnmixDB("/home/etiandre/stage/datasets/unmixdb-zenodo")
 
 
 def worker(mix: UnmixDBMix):
     results = {}
     os.makedirs(RESULTS_DIR / f"{date}/{mix.name}")
     sns.set_theme("paper")
-
-    # setup logging
-    logger = logging.getLogger(mix.name)
-    logger.setLevel(logging.DEBUG)
-
-    fileHandler = logging.FileHandler(RESULTS_DIR / f"{date}/{mix.name}/output.log")
-    fileHandler.setFormatter(logFormatter)
-    logger.addHandler(fileHandler)
 
     try:
         logger.info(f"Starting work on {mix.name}")
@@ -88,10 +88,10 @@ def worker(mix: UnmixDBMix):
             divergence=DIVERGENCE,
             iter_max=ITER_MAX,
             dloss_min=DLOSS_MIN,
-            carve_threshold=1e-3,
-            carve_blur_size=3,
-            carve_min_duration=40,
-            carve_max_slope=1.5,
+            carve_threshold=CARVE_THRESHOLD,
+            carve_blur_size=CARVE_BLUR_SIZE,
+            carve_min_duration=CARVE_MIN_DURATION,
+            carve_max_slope=CARVE_MAX_SLOPE,
         )
 
         # get ground truth
@@ -135,7 +135,8 @@ def worker(mix: UnmixDBMix):
         results["warp_est"] = est_warp
         results["gain_err"] = param_estimator.error(est_gain, real_gain)
         results["warp_err"] = param_estimator.error(est_warp, real_warp)
-        results["H"] = learner.H
+        results["H"] = learner.H.detach().numpy()
+        results["tau"] = tau
         results["time"] = tock - tick
 
     except Exception as e:
@@ -157,6 +158,30 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.info(f"Will process {len(unmixdb.mixes)} mixes")
+
+    with open(RESULTS_DIR / f"{date}/meta.json", "w") as f:
+        json.dump(
+            {
+                "FS": FS,
+                "HOP_SIZES": HOP_SIZES,
+                "OVERLAP": OVERLAP,
+                "NMELS": NMELS,
+                "SPEC_POWER": SPEC_POWER,
+                "DIVERGENCE": str(DIVERGENCE),
+                "GAIN_ESTOR": GAIN_ESTOR.__class__.__name__,
+                "WARP_ESTOR": WARP_ESTOR.__class__.__name__,
+                "LOW_POWER_THRESHOLD": LOW_POWER_THRESHOLD,
+                "CARVE_THRESHOLD": CARVE_THRESHOLD,
+                "CARVE_BLUR_SIZE": CARVE_BLUR_SIZE,
+                "CARVE_MIN_DURATION": CARVE_MIN_DURATION,
+                "CARVE_MAX_SLOPE": CARVE_MAX_SLOPE,
+                "DLOSS_MIN": DLOSS_MIN,
+                "ITER_MAX": ITER_MAX,
+                "RESULTS_DIR": str(RESULTS_DIR.resolve()),
+                "UNMIXDB_PATH": str(UNMIXDB_PATH.resolve()),
+            },
+            f,
+        )
     if args.workers == 1:
         for mix in unmixdb.mixes:
             worker(mix)

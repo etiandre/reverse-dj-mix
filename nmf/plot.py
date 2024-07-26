@@ -2,10 +2,14 @@ from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
 import librosa
-from activation_learner import ActivationLearner
+import matplotlib.patheffects as PathEffects
 
 COLOR_CYCLE = ["blue", "green", "red", "cyan", "magenta", "yellow", "black"]
 CMAP = "turbo"
+IGNORED_COLOR = "pink"
+IGNORED_ALPHA = 0.5
+TRACK_BOUNDARY_COLOR = "white"
+TRACK_BOUNDARY_PATHEFFECTS = [PathEffects.withStroke(linewidth=3, foreground="black")]
 
 
 def _pow_specshow(S, ax=None):
@@ -110,16 +114,38 @@ def plot_gain(
     # ax.set_ylim(0, 1)
 
 
-# TODO: time in seconds
-def plot_H(H: np.ndarray, split_idx=None, ax=None):
+def plot_H(H: np.ndarray, split_idx=None, ignored_lines=None, ax=None):
     ax = ax or plt.gca()
     im = imshow_highlight_zero(H, ax=ax, cmap=CMAP, aspect="auto", origin="lower")
 
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-            COLOR = "pink"
-            ax.axhline(a - 0.5, color=COLOR, linestyle="--", alpha=0.5)
-            ax.annotate(f"track {track}", (0, (a + b) / 2), color=COLOR)
+            ax.axhline(
+                a - 0.5,
+                color=TRACK_BOUNDARY_COLOR,
+                linestyle="--",
+                path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+            )
+            ax.annotate(
+                f"track {track}",
+                (0, (a + b) / 2),
+                color=TRACK_BOUNDARY_COLOR,
+                path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+                annotation_clip=False,
+                rotation="vertical",
+                horizontalalignment="center",
+                rotation_mode="anchor",
+            )
+
+    if ignored_lines is not None:
+        for l in ignored_lines.nonzero(as_tuple=True)[1]:
+            ax.fill_between(
+                (-0.5, H.shape[1] - 0.5),
+                l - 0.5,
+                l,
+                color=IGNORED_COLOR,
+                alpha=IGNORED_ALPHA,
+            )
 
     ax.set_xlabel("mix frame")
     ax.set_ylabel("ref frame")
@@ -127,35 +153,65 @@ def plot_H(H: np.ndarray, split_idx=None, ax=None):
 
 
 # TODO: time in seconds
-def plot_pow_spec(W: np.ndarray, split_idx=None, ax=None):
+def plot_pow_spec(W: np.ndarray, split_idx=None, ignored_cols=None, ax=None):
     ax = ax or plt.gca()
     im = _pow_specshow(W, ax)
     # annotate track boundaries if given
     if split_idx is not None:
-        COLOR = "pink"
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):
-            ax.axvline(a - 0.5, color=COLOR, linestyle="--", alpha=0.5)
-            ax.annotate(f"track {track}", ((a + b) / 2, 1), color=COLOR)
+            ax.axvline(
+                a - 0.5,
+                color=TRACK_BOUNDARY_COLOR,
+                linestyle="--",
+                path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+            )
+            ax.annotate(
+                f"track {track}",
+                ((a + b) / 2, 1),
+                color=TRACK_BOUNDARY_COLOR,
+                path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+                horizontalalignment="center",
+            )
+
+    if ignored_cols is not None:
+        for c in ignored_cols.nonzero(as_tuple=True)[1]:
+            ax.fill_betweenx(
+                (-0.5, W.shape[0] - 0.5),
+                c - 0.5,
+                c,
+                color=IGNORED_COLOR,
+                alpha=IGNORED_ALPHA,
+            )
 
     return im
 
 
-def plot_nmf(model: ActivationLearner):
+def plot_nmf(learner):
     fig, axes = plt.subplots(2, 2, figsize=(15, 6))
 
-    im = plot_pow_spec(model.V.cpu().detach().numpy(), ax=axes[0, 0])
+    im = plot_pow_spec(learner.V.cpu().detach().numpy(), ax=axes[0, 0])
     fig.colorbar(im, ax=axes[0, 0])
     axes[0, 0].set_title("V")
 
-    im = plot_H(model.H.cpu().detach().numpy(), model.split_idx, ax=axes[0, 1])
+    im = plot_H(
+        learner.H.cpu().detach().numpy(),
+        split_idx=learner.split_idx,
+        ignored_lines=learner.W_ignored_cols,
+        ax=axes[0, 1],
+    )
     fig.colorbar(im, ax=axes[0, 1])
     axes[0, 1].set_title("H")
 
-    im = plot_pow_spec(model.W.cpu().detach().numpy(), model.split_idx, ax=axes[1, 0])
+    im = plot_pow_spec(
+        learner.W.cpu().detach().numpy(),
+        split_idx=learner.split_idx,
+        ignored_cols=learner.W_ignored_cols,
+        ax=axes[1, 0],
+    )
     fig.colorbar(im, ax=axes[1, 0])
     axes[1, 0].set_title("W")
 
-    im = plot_pow_spec((model.W @ model.H).cpu().detach().numpy(), ax=axes[1, 1])
+    im = plot_pow_spec((learner.W @ learner.H).cpu().detach().numpy(), ax=axes[1, 1])
     fig.colorbar(im, ax=axes[1, 1])
     axes[1, 1].set_title("WH")
 

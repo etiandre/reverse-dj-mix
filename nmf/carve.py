@@ -1,4 +1,5 @@
 from typing import Optional
+import warnings
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as Fv
@@ -6,53 +7,95 @@ import cv2
 import numpy as np
 import scipy.ndimage
 import skimage
+import matplotlib.pyplot as plt
+import librosa
+import logging
+import plot
+import scipy.signal
+
+logger = logging.getLogger(__name__)
 
 
-def carve(H: torch.Tensor, split_idx, threshold_dB):
-    threshold = 10 ** (threshold_dB / 20)
-    for left, right in zip(split_idx, split_idx[1:]):
-        energy = H[left:right, :].max(dim=0)[0]
-        H[left:right, energy < threshold] = 0
-    return H
+def line_kernel(
+    window: str,
+    n: int,
+    *,
+    slope: float = 1.0,
+    angle: Optional[float] = None,
+) -> np.ndarray:
+    if angle is None:
+        angle = np.arctan(slope)
 
-
-def carve_naive(H: torch.Tensor, threshold):
-    H[H < threshold] = 0
-    return H
-
-
-def morpho_carve(H: torch.Tensor, threshold):
-    H = H.unsqueeze(0)
-    H_blur = Fv.gaussian_blur(H, 3)
-    H[H_blur < threshold] = 0
-    return H.squeeze(0)
-
-
-def resize_cv_area(img: torch.Tensor, shape: tuple[int, int]) -> torch.Tensor:
-    img = img.unsqueeze(0).unsqueeze(0)
-    img_resized = F.interpolate(img, size=(shape[0], shape[1]), mode="area")
-    img_blur = Fv.gaussian_blur(img_resized, 1)
-    return img_blur.squeeze(0).squeeze(0)
-
-
-def line_kernel(l: int, slope: float = 1.0):
-    angle = np.arctan(slope)
-
-    # win = np.diag(get_window(window, n, fftbins=False))
-    win = np.eye(l)
+    win = np.diag(scipy.signal.get_window(window, n, fftbins=False))
 
     if not np.isclose(angle, np.pi / 4):
         win = scipy.ndimage.rotate(
             win, 45 - angle * 180 / np.pi, order=5, prefilter=False
         )
+
+    np.clip(win, 0, None, out=win)
     win /= win.max()
 
     return win
 
-import matplotlib.pyplot as plt
+
+def one_pixel_line_kernel(n, slope):
+    angle = np.arctan(slope)
+    x = int(n * np.cos(angle))
+    y = int(n * np.sin(angle))
+    ker = np.zeros((x + 1, y + 1)).astype(float)
+    rr, cc = skimage.draw.line(0, 0, x, y)
+    ker[rr, cc] = 1.0
+    return ker
 
 
-def resize_then_carve(
+def line_enhance(
+    H: np.ndarray,
+    split_idx: list[int],
+    size: int,
+    max_slope: float,
+    n_filters: int,
+    diag_window: str,
+):
+    min_slope = 1.0 / max_slope
+    ret = np.zeros_like(H)
+    for left, right in zip(split_idx, split_idx[1:]):
+        Hi = H[left:right, :]
+        # Hi = np.ascontiguousarray(Hi)
+        # Hi_skel = skimage.morphology.skeletonize(Hi).astype(float)
+
+        for slope in np.logspace(
+            np.log2(min_slope), np.log2(max_slope), num=n_filters, base=2
+        ):
+            kernel = one_pixel_line_kernel(n=size, slope=slope)
+            np.maximum(
+                ret[left:right, :],
+                skimage.morphology.opening(Hi_skel, kernel),
+                out=ret[left:right, :],
+            )
+    return ret
+
+
+def blur(
+    H: np.ndarray,
+    split_idx: list[int],
+    size: int = 3,
+):
+    if size == 1:
+        return H
+    ret = []
+    for left, right in zip(split_idx, split_idx[1:]):
+        Hi = H[left:right, :]
+        if size % 2 == 0:
+            size += 1  # must be odd
+        Hi_blur = cv2.GaussianBlur(Hi, (size, size), 0)
+        Hi_blur *= Hi.max() / Hi_blur.max()
+        ret.append(Hi_blur)
+
+    return np.concatenate(ret, axis=0)
+
+
+def H_interpass_enhance(
     H: torch.Tensor,
     dest_shape: tuple[int, int],
     split_idx: list[int],
@@ -60,45 +103,40 @@ def resize_then_carve(
     blur_size: int = 3,
     diag_size: int = 3,
     max_slope: float = 2,
-    min_slope: Optional[float] = None,
     n_filters: int = 7,
+    diag_window: str = "boxcar",
+    doplot=False,
 ):
-    if min_slope is None:
-        min_slope = 1.0 / max_slope
-    elif min_slope > max_slope:
-        raise ValueError(f"min_ratio={min_slope} cannot exceed max_ratio={max_slope}")
+    logger.info(
+        f"H_enhance: {dest_shape=}, {threshold=}, {blur_size=}, {diag_size=}, {max_slope=}, {n_filters=}, {diag_window=}"
+    )
 
-    ret = []
-    for left, right in zip(split_idx, split_idx[1:]):
-        Hi_np = H[left:right, :].cpu().detach().numpy()
+    H_np = H.detach().cpu().numpy()
 
-        Hi_np_enhanced = np.zeros_like(Hi_np)
-        for slope in np.logspace(
-            np.log2(min_slope), np.log2(max_slope), num=n_filters, base=2
-        ):
-            kernel = line_kernel(diag_size, slope)
-            
-            np.maximum(
-                Hi_np_enhanced,
-                skimage.morphology.opening(Hi_np, kernel),
-                out=Hi_np_enhanced,
-            )
-            
-        Hi_np = Hi_np_enhanced
-
-        if blur_size != 1:
-            if blur_size % 2 == 0:
-                blur_size += 1  # must be odd
-            Hi_np = cv2.GaussianBlur(Hi_np, (blur_size, blur_size), 0)
-
-        Hi_np[Hi_np / Hi_np.max() < threshold] = 0
-
-        ret.append(Hi_np)
-
-    H_np = np.concatenate(ret, axis=0)
-
-    if dest_shape != H.shape:
-        H_np = cv2.resize(
-            H_np, (dest_shape[1], dest_shape[0]), interpolation=cv2.INTER_AREA
+    # filter for lines
+    if diag_size <= 3:
+        logger.warn(f"diag size ({diag_size}) is too small, skipping line enhance")
+        H_line = H_np
+    else:
+        H_line = line_enhance(
+            H_np, split_idx, diag_size, max_slope, n_filters, diag_window
         )
-    return torch.tensor(H_np).to(H.device)
+
+    # blur
+    H_blur = blur(H_line, split_idx, blur_size)
+
+    # threshold
+    H_blur[H_blur / H_blur.max() < threshold] = 0
+
+    # resize
+    if dest_shape != H.shape:
+        H_resized = cv2.resize(
+            H_blur, (dest_shape[1], dest_shape[0]), interpolation=cv2.INTER_AREA
+        )
+    else:
+        H_resized = H_blur
+
+    if doplot:
+        fig, axs = plt.subplots(1, 3)
+        plot.plot_H(H_np, ax=axs[0])
+    return torch.tensor(H_resized).to(H.device)

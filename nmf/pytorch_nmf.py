@@ -252,6 +252,9 @@ class BetaDivergence(Divergence):
         V_eps = V.add(EPS)
         Vhat_eps = Vhat.add(EPS)
         return V_eps * Vhat_eps.pow(self.beta - 2)
+    
+    def __str__(self) -> str:
+        return f"BetaDivergence(beta={self.beta})"
 
 
 class L1(Penalty):
@@ -397,3 +400,16 @@ class SmoothOverRow(Penalty):
 
     def grad_pos(self, X: Tensor):
         return 4 * X
+
+
+class NoHorizLines(Penalty):
+    def compute(self, X: Tensor):
+        return torch.sum(X[:, 1:] * X[:, :-1])
+
+    def grad_neg(self, X: Tensor):
+        return torch.zeros_like(X)
+
+    def grad_pos(self, X: Tensor):
+        ret = torch.zeros_like(X)
+        ret[:, 1:-1] = X[:, 2:] + X[:, :-2]
+        return ret
