@@ -25,20 +25,20 @@ from pytorch_nmf import BetaDivergence
 
 # hyperparams
 FS = 22050
-HOP_SIZES = [8, 4, 1, 0.5]
+HOP_SIZES = [4, 2, 1, 0.5]
 OVERLAP = 8
 NMELS = 128
 SPEC_POWER = 2
 DIVERGENCE = BetaDivergence(0)
 GAIN_ESTOR = param_estimator.GainEstimator.SUM
 WARP_ESTOR = param_estimator.WarpEstimator.ARGMAX
-LOW_POWER_THRESHOLD = 0.01
-CARVE_THRESHOLD = 1e-3
+LOW_POWER_THRESHOLD = 1e-2
+CARVE_THRESHOLD = 1e-6
 CARVE_BLUR_SIZE = 3
-CARVE_MIN_DURATION = 40
+CARVE_MIN_DURATION = 10
 CARVE_MAX_SLOPE = 1.5
 # stop conditions
-DLOSS_MIN = 1e-8
+DLOSS_MIN = 1e-10
 ITER_MAX = 5000
 # paths
 RESULTS_DIR = Path("/data5/anasynth_nonbp/andre/reverse-dj-mix/results")

@@ -70,7 +70,7 @@ def line_enhance(
             kernel = one_pixel_line_kernel(n=size, slope=slope)
             np.maximum(
                 ret[left:right, :],
-                skimage.morphology.opening(Hi_skel, kernel),
+                skimage.morphology.opening(Hi, kernel),
                 out=ret[left:right, :],
             )
     return ret

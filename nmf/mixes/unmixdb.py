@@ -136,11 +136,16 @@ class UnmixDBMix(FromFileMix):
 
 
 class UnmixDB(Dataset):
-    def __init__(self, base_path: Union[Path, str]):
+    def __init__(self, base_path: Union[Path, str], only_good_mixes=True):
         self._mixes = []
         base_path = Path(base_path)
 
         assert base_path.exists()
+
+        if only_good_mixes:
+            with open(Path(__file__).parent / "unmixdb-goodmixes.txt") as f:
+                good_mixes = [i.strip() for i in f.readlines()]
+
         for subset in base_path.glob("*"):
             reftracks = {}
             for audio_path in subset.glob("refsongs/*.mp3"):
@@ -153,6 +158,9 @@ class UnmixDB(Dataset):
                 )
 
             for audio_path in subset.glob("mixes/*.mp3"):
+                if only_good_mixes and audio_path.name not in good_mixes:
+                    print(f"skip bad mix {audio_path.name}")
+                    continue
                 if m := re.match(r"\w+-(\w+)-(\w+)-(\d+)", audio_path.stem):
                     timestretch = m.group(1)
                     fx = m.group(2)

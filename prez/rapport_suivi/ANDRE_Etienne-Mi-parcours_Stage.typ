@@ -157,7 +157,7 @@ Ensuite, en supposant que l'on puisse changer l'ordre des opérations, on peut s
   image("../2024-04-26/nmf-djmix.png"),
   caption: [Formulation du processus de mix DJ sous forme NMF],
   placement: none
-) <nmf-djmix>donc
+) <nmf-djmix>
 
 Étant donnée une matrice non-négative $bold(V)$, l'algorithme NMF permet de la décomposer en deux matrices non-négatives $bold(W)$ et $bold(H)$ telles que $ bold(V) approx bold(W H) $
 

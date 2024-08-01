@@ -15,3 +15,7 @@ runs/
 results/
 *.pickle
 artifacts/
+badzone*.png
+.DS_Store
+Backup/
+*.mp4
