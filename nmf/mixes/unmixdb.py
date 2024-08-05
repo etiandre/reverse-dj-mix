@@ -181,7 +181,7 @@ class UnmixDB(Dataset):
                     raise RuntimeError
 
     @property
-    def mixes(self):
+    def mixes(self) -> list[UnmixDBMix]:
         return self._mixes
 
     @cached_property

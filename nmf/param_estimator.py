@@ -127,12 +127,12 @@ def fit_ideal_gain(tau, gain):
     )
 
 
-def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
+def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
     # median filter
-    kernel_size = int(filter_size / (tau[1] - tau[0]))
+    kernel_size = int(medfilt_duration / (tau[1] - tau[0]))
     if kernel_size % 2 == 0:
         kernel_size += 1  # must be odd
-    gain_filt = scipy.signal.medfilt(gain, kernel_size=kernel_size)
+    gain_filt = scipy.ndimage.median_filter(gain, size=kernel_size, axes=0)
 
     # normalize
     gain_norm = gain_filt / gain_filt.max()
@@ -165,11 +165,14 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
     speed, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
-
+    linregress_ret = scipy.stats.linregress(tau[mask], warp[mask])
+    speed: float = linregress_ret.slope
+    warp_intercept: float = linregress_ret.intercept
+    
     # calculate track start time
     track_start = -warp_intercept / speed
 
-    if plot:
+    if doplot:
         fig, axes = plt.subplots(2, 1, figsize=(20, 6))
         axes[0].plot(tau, gain, label="input", alpha=0.5)
         axes[0].plot(tau, gain_norm, label="filt")
@@ -181,6 +184,11 @@ def estimate_highparams(tau, gain, warp, filter_size=5, plot=False):
             [g_min, g_max, g_max, g_min],
             label="fit",
         )
+
+        # Annotate fade times
+        for fade_time in [fadein_start, fadein_stop, fadeout_start, fadeout_stop]:
+            axes[0].annotate(f"{fade_time:.2f}", (fade_time, 0.5), ha="center")
+
         axes[0].set_title("gain")
         axes[0].legend()
 

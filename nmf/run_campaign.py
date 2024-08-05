@@ -107,20 +107,76 @@ def worker(mix: UnmixDBMix):
         logger.info(f"Estimating warp with method {WARP_ESTOR}")
         est_warp = WARP_ESTOR(learner.H, learner.split_idx, HOP_SIZES[-1])
 
+        # estimate and plot highparams
+        highparams = []
+        for i in range(3):
+            (
+                est_track_start,
+                est_fadein_start,
+                est_fadein_stop,
+                est_fadeout_start,
+                est_fadeout_stop,
+                est_speed,
+                fig,
+            ) = param_estimator.estimate_highparams(
+                tau, est_gain[:, i], est_warp[:, i], doplot=True
+            )
+
+            fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/highparams_{i}.png")
+
+            real_track_start = mix.meta[i]["start"]
+            real_fadein_start = mix.meta[i]["fadein"][0]
+            real_fadein_stop = mix.meta[i]["fadein"][1]
+            real_fadeout_start = mix.meta[i]["fadeout"][0]
+            real_fadeout_stop = mix.meta[i]["fadeout"][1]
+            real_speed = mix.meta[i]["speed"]
+
+            err_track_start = param_estimator.error(est_track_start, real_track_start)
+            err_fadein_start = param_estimator.error(
+                est_fadein_start, real_fadein_start
+            )
+            err_fadein_stop = param_estimator.error(est_fadein_stop, real_fadein_stop)
+            err_fadeout_start = param_estimator.error(
+                est_fadeout_start, real_fadeout_start
+            )
+            err_fadeout_stop = param_estimator.error(
+                est_fadeout_stop, real_fadeout_stop
+            )
+            err_speed = param_estimator.error(est_speed, real_speed)
+
+            highparams.append(
+                {
+                    "track_start_est": est_track_start,
+                    "fadein_start_est": est_fadein_start,
+                    "fadein_stop_est": est_fadein_stop,
+                    "fadeout_start_est": est_fadeout_start,
+                    "fadeout_stop_est": est_fadeout_stop,
+                    "speed_est": est_speed,
+                    "track_start_real": real_track_start,
+                    "fadein_start_real": real_fadein_start,
+                    "fadein_stop_real": real_fadein_stop,
+                    "fadeout_start_real": real_fadeout_start,
+                    "fadeout_stop_real": real_fadeout_stop,
+                    "speed_real": real_speed,
+                    "track_start_err": err_track_start,
+                    "fadein_start_err": err_fadein_start,
+                    "fadein_stop_err": err_fadein_stop,
+                    "fadeout_start_err": err_fadeout_start,
+                    "fadeout_stop_err": err_fadeout_stop,
+                    "speed_err": err_speed,
+                }
+            )
+
         tock = time.time()
 
         # save figures
         fig = plt.figure()
         plot.plot_gain(tau, est_gain, real_gain)
-        fig.savefig(
-            RESULTS_DIR / f"{date}/{mix.name}/{GAIN_ESTOR.__class__.__name__}.png"
-        )
+        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/{GAIN_ESTOR.__name__}.png")
 
         fig = plt.figure()
         plot.plot_warp(tau, est_warp, real_warp)
-        fig.savefig(
-            RESULTS_DIR / f"{date}/{mix.name}/{WARP_ESTOR.__class__.__name__}.png"
-        )
+        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/{WARP_ESTOR.__name__}.png")
 
         plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix.name}/nmf.png")
 
@@ -138,6 +194,7 @@ def worker(mix: UnmixDBMix):
         results["H"] = learner.H.detach().numpy()
         results["tau"] = tau
         results["time"] = tock - tick
+        results["highparams"] = highparams
 
     except Exception as e:
         if e is KeyboardInterrupt:
@@ -168,8 +225,8 @@ if __name__ == "__main__":
                 "NMELS": NMELS,
                 "SPEC_POWER": SPEC_POWER,
                 "DIVERGENCE": str(DIVERGENCE),
-                "GAIN_ESTOR": GAIN_ESTOR.__class__.__name__,
-                "WARP_ESTOR": WARP_ESTOR.__class__.__name__,
+                "GAIN_ESTOR": GAIN_ESTOR.__name__,
+                "WARP_ESTOR": WARP_ESTOR.__name__,
                 "LOW_POWER_THRESHOLD": LOW_POWER_THRESHOLD,
                 "CARVE_THRESHOLD": CARVE_THRESHOLD,
                 "CARVE_BLUR_SIZE": CARVE_BLUR_SIZE,
