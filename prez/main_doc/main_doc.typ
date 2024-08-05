@@ -313,6 +313,3 @@ $
 gradient_bold(H)^- cal(P)_l &= 0
 $
 
-$
-
-$

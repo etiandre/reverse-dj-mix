@@ -1,10 +1,12 @@
 #import "@preview/ilm:1.1.1": *
+#import "@preview/lovelace:0.3.0": *
+#import "@preview/ctheorems:1.1.2": *
 #set text(lang: "en")
-#let oslash = symbol("⊘")
-
+#let proof = thmproof("proof", "Proof")
+#show: thmrules.with(qed-symbol: $square$)
 
 #show: ilm.with(
-  title: [Rapport de stage],
+  title: [Internship dissertation],
   author: "Étienne ANDRÉ",
   date: datetime.today(),
   abstract: [],
@@ -16,6 +18,14 @@
   date-format: auto,
   table-of-contents: none
 )
+
+#set figure(placement: auto)
+#let my-lovelace-defaults = (
+  booktabs: true
+)
+
+#let pseudocode = pseudocode.with(..my-lovelace-defaults)
+#let pseudocode-list = pseudocode-list.with(..my-lovelace-defaults)
 
 = Sujet de stage
 
@@ -50,7 +60,7 @@ DJs (_Disc-Jockeys_) and DJing have been a staple of our musical landscape for d
 
 While the act of DJing can be understood in multiple ways, our understanding consists of playing recorded media (_tracks_) in a continuous manner, to a live audience, on the radio (or any other broadcast media) or to a recorded medium (such as _mixtapes_, or for streaming services).
 
-These _mixes_ consist of music tracks, carefully selected by the DJ, played sequentially. But the act of DJing is a transformative one: the DJ may overlap one or more tracks in order to create new musical pieces (_mashups_), or more frequently to prevent silence between sequential tracks. The overlapping regions between songs are called _transitions_, the simplest of which is a simple cross-fade.
+These _mixes_ consist of music tracks, carefully selected by the DJ, played sequentially. But the act of DJing is a transformative endeavour: the DJ may overlap one or more tracks in order to create new musical pieces (_mashups_), or more frequently to prevent silence between sequential tracks. The overlapping regions between songs are called _transitions_, the simplest of which is a simple cross-fade.
 
 In dance music, these transitions are usually made to be as seamless as possible, in order to keep the energy up and the people dancing. As such, the DJ can use various techniques, such as syncrhonizing the tempo and downbeats of the overlapping tracks, using EQs to add or remove parts of the tracks, and use various effects such as reverbs and delays.
 
@@ -152,16 +162,17 @@ We will now use this knowledge to introduce a matrix formulation of DJ-mixing, b
 
 Assuming the $M$ constituting tracks of the mix are known, let $forall i in [1...M]$:
 - $bold(W)_((i))$ the spectrogram of track $i$;
-- $bold(H)_((i))$ the _activation matrix_ of track $i$, representing both the time-warping operations and the gain applied at the mixing stage;
+- $bold(H)_((i))$ the so-called _activation matrix_ of track $i$, representing both the time-warping operations and the gain applied at the mixing stage;
 - $bold(V)_((i)) = bold(W)_((i)) bold(H)_((i))$ the time-remapped spectrogram of track $i$ with gain appplied;
 - $bold(N)$ a noise matrix representing the timbral applied to the mix and/or tracks and any additional elements;
 - $bold(V)$ the spectrogram of the mix.
 
-Using these notations, we then have:
+Using these notations, we can write:
 
-$ bold(V) &= bold(N) + sum_(i = 1)^M bold(W)_((i)) bold(H)_((i)) $
+$ bold(V) &= bold(N) + sum_(i = 1)^M bold(W)_((i)) bold(H)_((i)) $ <eq:mix>
 
-An illustration of this equation is given on @nmf-djmix.
+An illustration of @eq:mix is given @nmf-djmix.
+
 #figure(
   image("../2024-04-26/nmf-djmix.png"),
   caption: [Formulation du processus de mix DJ sous forme NMF],
@@ -174,138 +185,355 @@ Then, by defining two additional matrices $bold(W)_((a))$ and $bold(H)_((a))$ of
 $ bold(V) &= bold(W)_((a)) bold(H)_((a)) + sum_(i = 1)^M bold(W)_((i)) bold(H)_((i)) \
 &= underbrace(mat(bold(W)_((1)) bold(W)_((2)) ... bold(W)_((M))bold(W)_((a))), bold(W)) underbrace(mat( bold(H)_((1)); bold(H)_((2)); dots.v; bold(H)_((M)); bold(H)_((a))), bold(H)) $
 
-Thus, estimating the gain and time-warping amounts to determining the coefficients of the $bold(H)$ matrix. Additionally, by determining $bold(W)_((a))$, any additional elements and timbral effects can be estimated. Such an estimation task is well-suited for the NMF family of algorithms, which has proven effective in a variety of audio-related problems.
+Thus, estimating the gain and time-warping amounts to determining the coefficients of the $bold(H)$ matrix. Additionally, by determining $bold(W)_((a))$, any additional elements and timbral effects can be estimated. Such an estimation task is well-suited for the NMF family of algorithms, which has proven effective especially in audio source separation tasks.
 
-== NMF
-
-Let $bold(W)_(F times K)$, $bold(H)_(K times N)$ and $bold(V)_(F times N)$ non-negative matrices.
-
-== Beta-NMF
+== NMF Algorithm
 #text(fill: red)[Présentation générale de la beta-nmf, avec les propriétés intéressantes pour la suite. Lien entre beta et puissance du spectrogramme]
 
+=== Beta-NMF and Multiplicative Update rules
+Let $bold(W)_(F times K)$, $bold(H)_(K times N)$ and $bold(V)_(F times N)$ non-negative matrices. The NMF algorithm in its most basic form aims to minimise a similarity measure $cal(D)$ between the _target matrix_ $bold(V)$ and the _estimated matrix_ $bold(W) bold(H)$, and amounts to solving the following optimization problem:
 
-#strong[Objectif]: minimise a divergence $D$ between $bold(V)$ and
-$bold(W) bold(H)$:
+$ min_(bold(W) , bold(H)) cal(D) (bold(V) | bold(W) bold(H)) "with" bold(W) >= 0 , bold(H) >= 0 $ <eq:optimization-problem>
 
-$ min_(bold(W) , bold(H)) D (bold(V) | bold(W) bold(H)) "avec" bold(W) >= 0 , bold(H) >= 0 $
+The similarity measure we use is the beta-divergence, which is defined $forall beta in RR$ as follows:
 
-#strong[Distance]: $beta$-divergence
-
-$ D_beta lr((bold(V) | bold(W) bold(H))) = sum_(f = 1)^F sum_(n = 1)^N d lr((bold(V)_(f n) | lr((bold(W H)))_(f n))) $
-$ d lr((x | y)) = cases(
+$ cal(D)_beta lr((bold(V) | bold(W) bold(H))) = sum_(f = 1)^F sum_(n = 1)^N d lr((bold(V)_(f n) | lr((bold(W H)))_(f n))) $
+$ d_beta lr((x | y)) = cases(
   frac(1, beta lr((beta - 1))) lr((x^beta + lr((beta - 1)) y^beta - beta x y^(beta - 1))) & "if" beta != {0, 1},
   x log x / y - x + y & "if" beta = 1,
   x / y - log x y - 1 & "if" beta = 0
-) $
+) $ <eq:beta-divergence>
 
-$dot.circle$ et #oslash désignent respectivement le produit et la division d'Hadamard (terme-à-terme).
-+ Initialiser $bold(X) >= 0$ et $bold(H) >= 0$
-+ Mettre à jour successivement $bold(X)$ et
-  $bold(H)$
-  $ bold(H) arrow.l bold(H) dot.circle [bold(X)^T ((bold(W H))^(beta - 2) dot.circle bold(Y))] #oslash [bold(X)^T (bold(W H))^(beta - 1)] $
-  $ bold(X) arrow.l bold(X) dot.circle [((bold(W H))^(beta - 2) dot.circle bold(Y)) bold(H)^T] #oslash [(bold(W H))^(beta - 1) bold(H)^T] $
-+ Répéter l’étape 2 jusqu’à convergence ou nombre d’itérations maximum
+It can be noted that the beta-divergence is equivalent to:
+- the Euclidian distance if $beta = 2$;
+- the Kullblack-Liebler divergence if $beta = 1$;
+- the Itakura-Saito divergence if $beta = 0$.
 
-== Caractérisation des transformations temporelles
-#text(fill: red)[Justification de la forme attendue des résultats. Ne garder que la version discrète et virer la version continue ?]
+As shown in @fevotteNonnegativeMatrixFactorization2009 and later extended in @fevotteAlgorithmsNonnegativeMatrix2011, an efficient and simple gradient descent algorithm for $bold(W)$ and $bold(H)$ can be derived from the beta-divergence by separating its gradient w.r.t. a parameter $bold(theta)$ into its positive and negative parts:
 
-In this section, we will be characterizing what happens to the $bold(H)_((i))$ in the case of a time-remapping and gain transformations. To simplify the notations, we will drop the $(i)$ subscripts in this whole section.
-
-=== Continuous formulation
-
-Let:
-- $x$ be a real-valued signal;
-- $f$ a time-remapping injective function (with values in $RR$), that maps a time of $x(t)$ to another;
-- $g$ be a gain signal with values in [0,1];
-- $w$ be a symmetric window function of length $F$;
-- $y$ to the time-remapped and gain-affected transformation of $x(t)$;
-- $t$ denotes time in the $x$ signal, $tau$ denotes time in the $y$ signal.
-
-We define $X$, the power-STFT of $x$, to be:
-$ X (omega, t) eq.def abs(integral_RR x(u+t) w(u) e^(-j omega u) d u)^2 $
-
-Similarly, we define $Y$, the power-STFT of $y$, and show that it can be expressed in terms of $X$:
-
-$ Y (omega, tau) &eq.def abs(g(tau) integral_RR x(u+f(tau)) w(u) e^(-j omega u) d u)^2 \
-&= g(tau)^2 X(omega, f(tau)) $
-
-Now, our goal is to decompose $Y$ into a continuous linear combination of $X$, with fixed $omega$. In other words, find an integral transform of $X$ that yields $Y$. This involves determining a kernel $H$ that satisfies:
-$ Y(omega, tau) = integral_RR X(omega, t) H (t, tau) d t $ <integral_transform>
-
-The kernel $H(t, tau) eq.def g(tau)^2 delta(t-f(tau))$ (where $delta(0) = 1$ and $0$ elsewhere) is a particular solution to @integral_transform:
-$ Y(omega, tau) &= integral_RR X(omega, t) g(tau)^2 delta(t-f(tau)) d t \
-&= g(tau)^2 X(omega, f(tau))
 $
-== Discrete formulation
+gradient_bold(bold(theta)) cal(D)_beta (bold(V) | bold(W) bold(H)) = gradient_bold(bold(theta))^+ cal(D)_beta (bold(V) | bold(W) bold(H)) - gradient_bold(bold(theta))^- cal(D)_beta (bold(V) | bold(W) bold(H))
+$ <eq:gradient-separation>
+
+Using the notation trick described in @fevotteAlgorithmsNonnegativeMatrix2011, multiplicative update rules can be obtained#footnote[$dot.circle$ and $.../...$ stand respectively for Hadamard's (element-wise) product and division.]:
+$
+bold(theta) <- bold(theta) dot.circle (gradient_bold(bold(theta))^- cal(D)_beta (bold(V) | bold(W) bold(H))) / (gradient_bold(bold(theta))^+ cal(D)_beta (bold(V) | bold(W) bold(H)))
+$ <eq:mu-gradient>
+
+With the beta-divergence, this yields @algo:mu-betadiv which can be very efficiently implemented, with strong monotonicity guarantees when $beta in [0,2]$:
+
+#figure(
+  kind: "algorithm",
+  supplement: [Algorithm],
+
+  pseudocode-list(numbered-title:[NMF Algorithm with Multiplicative Updates], line-gap:1.4em)[
+  + *Initialize* $bold(W) >= 0$ and $bold(H) >= 0$
+  + *Until* convergence criterion is reached:
+    + $bold(H) arrow.l bold(H) dot.circle (bold(W)^T ((bold(W H))^(beta - 2) dot.circle bold(V))) / (bold(W)^T (bold(W H))^(beta - 1))$
+    + $bold(W) arrow.l bold(W) dot.circle (((bold(W H))^(beta - 2) dot.circle bold(V)) bold(H)^T) / ((bold(W H))^(beta - 1) bold(H)^T)$
+  ]
+) <algo:mu-betadiv>
+
+An interesting property of this algorithm is that any zeroes in $bold(H)$ or $bold(W)$, by property of multiplication, remains zero troughout the optimization process. We will exploit this property in @sec:multi-pass.
+
+=== Penalized Beta-NMF
+
+More complex objective functions can be crafted by adding supplementary functions to the similarity measure, for penalization or regularization of the solutions. To illustrate, we will consider a new objective function $cal(C)$ comprised of the beta-divergence and an additional penalty function $cal(P)$ on $bold(H)$ weighted by $lambda in RR^+$:
+
+$
+cal(C) = cal(D)_beta (bold(V) | bold(W H)) + lambda cal(P)(bold(H))
+$
+
+Supposing the gradients of the penalty functions are separable into their positive and negative parts, new multiplicative update rules can be easily derived by following the procedure from the previous section. However, the monotonicity mentioned above is no longer guanranteed, and is dependent on the form of $cal(P)$ and the choice of $lambda$; which both can be validated through experimentation.
+
+=== Choosing the divergence and the type of spectrograms
+
+In @virtanenMonauralSoundSource2007 it has been shown that the Kullblack-Liebler divergence gives good results on source separation tasks when paired with magnitude spectrogram. On the other hand, @fevotteMajorizationminimizationAlgorithmSmooth2011 uses a strong statistical model to pair the Itakura-Saito divergence with power spectrograms.
+
+Furthermore, @fitzgeraldUseBetaDivergence2009 discusses fractional values for $beta$, and suggests that the spectrograms could also be taken to a fractional power; along with the so-called tempered beta-divergence which uses $beta$ as a temperature parameter that varies during the course of optimization. However, we did not manage to find prior art with conclusive results on the best possible approach for our specific task. In the end, we used the Itakura-Saito divergence with power spectrogram, which in our trials gave the best results.
+
+
+== Characterization of warp and gain
+#text(fill: red)[Justification de la forme attendue des résultats]
+
+In this section, we introduce a model for time-warping and applying gain on a signal in the spectral domain, and show that there exists a particular solution for the activation matrix with exhibits intuitive structures. We then define gain and warp estimators, and study their robustness against noise and other indetermination sources.
+
+From now on, and for clarity, $t$ denotes the discrete time in the track, and $tau$ the discrete time in the mix.
+
+=== Ideal kernel
 
 Let:
-- $x[n]$ be a real-valued signal;
-- $f[n]$ a time-remapping injective sequence with values in $NN$, that maps a frame of $x[n]$ to another;
-- $g[n]$ be a gain signal with values in [0,1];
-- $w[n]$ be a symmetric window function of length $M$.
+- $x[t]$ a real-valued signal;
+- $f[tau]$ a time-warping injective sequence with values in $NN$ that maps a mix time step $tau$ to a track time step $t$;
+- $g[tau]$ a gain signal with values in [0,1];
+- $y[tau]$ the time-warped and gain-affected transformation of $x$;
+- $w[n]$ an arbitrary window function of length $M$.
 
-We define $bold(X) = (bold(X)_(m t))$ to be the matrix containing the power spectrogram of $x$ ($M$ frequency bins $times T$ time steps):
-$ bold(X)_(m t) = abs(sum_(n=0)^(M-1) x[n+t] w[n] e^(-j 2 pi n m / M))^2 $
+We define $bold(X) = (bold(X)_(m t))$ to be the the power spectrogram matrix of $x$ ($M$ frequency bins $times T$ time steps):
+$ bold(X)_(m t) = abs(sum_(n=0)^(M-1) x[n+t] w[n] e^(-j 2 pi n m / M))^2 $ <eq:stft>
 
-We then define the signal $y$ to be the time-remapped and gain-affected transformation of $x$.
-
-Similarly, we define $bold(Y) = (bold(Y)_(m tau))$ to be the matrix containing the power spectrogram of $y$ ($M$ frequency bins $times K$ time steps):
+Similarly, we define $bold(Y) = (bold(Y)_(m tau))$ to be the matrix containing the power spectrogram of $y$ ($M$ frequency bins $times K$ time steps), and show that in can be expressed in terms of $bold(X)$:
 
 $ bold(Y)_(m tau) &= abs(g[tau] sum_(n=0)^(M-1) x[n+f[tau]] w[n] e^(-j 2 pi n  m/ M))^2 \
 &= g[tau]^2 bold(X)_(m,f[tau])
 $ <xy-relation>
 
-Then we can find a matrix $bold(H) = (bold(H)_(t tau))$ (of dimensions $T$ time steps $times K$ time steps) that satisfies:
+We can then find a matrix $bold(H) = (bold(H)_(t tau))$ (of dimensions $T$ time steps $times K$ time steps) that satisfies:
 $ bold(Y) &= bold(X) bold(H) <=> bold(Y)_(m tau) = sum_(t=0)^(T-1) bold(X)_(m t) bold(H)_(t tau) $ <matmul>
 
-The _ideal kernel_ $bold(H)_(t tau) eq.def g[tau]^2 delta_(t,f[tau])$ <ideal-kernel> is a particular solution to @matmul and can be seen as the discretized version of the ideal kernel from the previous section.
+The _ideal kernel_ $bold(H)^"ideal"$ (@ideal-kernel), a solution to @matmul, is of particular interest. Indeed, when the matrix is viewed as an image, it exhibits a very intuitive understanding of the concept of the transformations applided to $x[t]$, as is illustrated in @fig:time-time.
 
-== Estimation du gain et du _warp_
+$ bold(H)^"ideal"_(t tau) eq.def g[tau]^2 delta_(t,f[tau]) $ <ideal-kernel>
+where $delta_(a,b) = cases(1 "if" a = b, 0 "if not")$
+
+#figure(
+  image("../2024-03-26/temps-temps.drawio.png"),
+  caption: [Some examples of the structures emerging in $bold(H)^"ideal"$, with the associated DJ nomenclature],
+) <fig:time-time>
+
+=== Estimation of the warp and gain values
 #text(fill: red)[Justification de l'exactitude des estimateurs dans le cas idéal]
 
-== Améliorations algorithmiques
+We define the following estimators:
 
-=== Compression de l'information
+$ tilde(g) [tau] = sqrt(sum_(t=1)^(T) bold(H)_(t tau) ) $ <gain_estimator_sum>
+$ tilde(f) [tau] = "argmax"_(t in [1...T]) bold(H)_(t tau) $ <time_estimator_argmax>
+
+Intuitively, $tilde(g)[tau]$ and $tilde(f)[tau]$ can respectively be understood as the energy of a column of $bold(H)$, and as the position of its peak.
+
+In the case of the ideal kernel (@ideal-kernel), it can easily be shown that these are exact estimators. In practice, the bare optimization algorithm offers no guarantee that it converges towards this kernel. We discuss such sources of indetermination in the following sections. This highlights the need to introduce additional techniques to steer convergence towards the ideal kernel, and ensuring that the estimators are robust to noise.
+
+=== Sources of indetermination
+
+==== Similar sounds in the source signal
+
+#figure([#image("../2024-05-30/longue-note.png")], caption: [Indeterminations in $bold(H)$ caused by spectrally similar frames.]) <fig:indeterminations>
+
+#figure([#image("../2024-05-17/image-2.png")], caption: [Parallel line structures in $bold(H)$ caused by loops in the reference tracks.]) <fig:parallel-lines>
+
+Given the nature of musical signals, two columns of $bold(X)$ could be almost identical (@fig:parallel-lines), for example in the presence of a loop in electronic music (@fig:indeterminations)
+
+Let $t_1$ and $t_2$ be the time steps at which this is true, and $tau_1=f^(-1)(t_1)$ and $tau_2=f^(-1)(t_2)$ their antecedents. We then have $forall m$:
+$ bold(Y)_(m tau_1) = bold(Y)_(m tau_2) = g[tau_1]^2 bold(X)_(m t_1) = g[tau_2]^2 bold(X)_(m t_2) $
+
+Visually, this corresponds to having multiple activations per column of $bold(H)$, with the energy of the activations being distributed arbitrarily between $t_1$ and $t_2$ in both the $tau_1$ and $tau_2$ columns. Fortunately, such indeterminations do not invalidate $tilde(g)$, but the same can not be said of $tilde(h)$.
+
+==== *Hop of the spectrogram*
+
+Usually, the spectrogram is not calculated for every sample of a signal as in our definition (@eq:stft), but at regular intervals of a so-called hop size $h$. This means that the time steps are replaced with $overline(t) = h t$ and $overline(tau) = h tau$
+$ bold(X)_(m overline(t)) = abs(sum_(n=0)^(M-1) x[n+h t] w[n] e^(-j 2 pi n m / M))^2 $
+$ bold(Y)_(m overline(tau)) &= abs(g[tau] sum_(n=0)^(M-1) x[n+f[h tau]] w[n] e^(-j 2 pi n  m/ M))^2 $
+
+Because of this discretization, there may not be an exact match between $overline(t)$ and $overline(tau)$: visually, the activations in $bold(H)$ may be distributed across two neighboring cells.
+
+#text(fill: red)[ajouter une illustration des pics étalés dans $bold(H)$]
+== Improvements to the algorithm <sec:improvements>
+
+=== Information compression
 #text(fill: red)[Réduction des dimensions des matrices $=>$ problème devient tractable. Parler de mel spec + gros hop avec justif que c'est "musical"]
 
-Let $bold(M)$ be a matrix of mel filter bank coefficients : $bold(X)^"mel" = bold(M)bold(X)$ and $bold(Y)^"mel" = bold(M)bold(Y)$. Then:
+DJ mixes are usually long, spanning from 30 minutes to multiple hours; and because they are musical signals, their frequency bandwidth is quite extensive. When using the STFT with typical hop durations and bin count for musical signals, the associated feature matrix can become quite large, causing high memory usage and resource consumption.
+
+In order to mitigate these issues, we first choose to use relatively large hop durations, in the order of seconds. As a side benefit, these larger hop durations are better suited to capturing musical structures. The hop duration however is not fixed, as is explained in section @sec:multi-pass.
+
+Additionally, we compress the frequency information using the mel-transform @stevensScaleMeasurementPsychological1937, which bins groups of close frequencies together according to a perceptual model of human hearing, which is well-suited for musical signals. This transform has no effect on the ideal kernel and our estimators.
+
+#proof[
+Let $bold(M)$ be a matrix of mel filterbank coefficients. The mel-spectrograms are calculated from the regular spectrograms: $bold(X)^"mel" = bold(M)bold(X)$ and $bold(Y)^"mel" = bold(M)bold(Y)$. Then we have:
 $
 bold(Y)^"mel"_(m tau) &= sum_i bold(M)_(m i) bold(Y)_(i tau) \
 &= g[tau]^2 sum_i bold(M)_(m i)  bold(X)_(i,f[tau]) \
 &= g[tau]^2 bold(X)^"mel"_(m, f[tau])
 $
 
-So the ideal kernel $bold(H)$ above is still clearly a solution of the transform between $bold(X)^"mel"$ and $bold(Y)^"mel"$.
+So the ideal kernel $bold(H)^"ideal"$ is still clearly a solution of @matmul.
+]
 
-We can exploit this representation to reduce the number of frequency bins, thus reducing the algorithmic complexity.
-
-=== Recouvrement
+=== Analysis window overlap
 #text(fill: red)[Exploitation de la continuité temporelle des signaux]
 
-=== Normalisation
-#text(fill: red)[Normalisation des matrices et impact sur les estimateurs]
+A key parameter when working with spectrograms is the overlap factor of the analysis windows. In order to emphasize the temporal continuity of the musical signals, we use high overlap factors: our experiments have shown that a window size of 6 to 8 times the hop size give the best results. It has proven very effective for curbing indeterminations.
 
-=== Régularisation
-#text(fill: red)[Définition des fonctions de régularisation utilisées et poids $lambda$ recommandés]
+Such large window sizes would usually entail a very high number of frequency bins, but by using the mel-transform we avoid this problem.
 
-=== _Warm-up_
-#text(fill: red)[Warm-up de $beta$, $lambda$, puissance du spectrogramme $=>$ pas de compromis entre robustesse et performance]
+=== Normalization
+To improve the numeric stability of the NMF, the columns of $bold(X)$ are usually normalized to sum to 1. We also normalize $bold(Y)$ by a single factor#footnote[Normalizing by column as for $bold(X)$ would cancel out the gain information in $bold(H)$.]. This results in a simple scaling factor for $bold(H)$ and therefore the estimators.
 
-=== NMF multi-passes
+#proof[
+Let the scaling factors $bold(k)_t eq.def sum_i bold(X)_(i t)$ and $kappa eq.def sum_i sum_t bold(Y)_(i t)$.
+
+The normalized spectrograms are:
+$ bold(X)^"norm"_(m t) eq.def bold(X)_(m t) / bold(k)_t $
+
+$ bold(Y)^"norm" eq.def bold(Y) / kappa  $
+
+
+Using @xy-relation:
+$
+bold(Y)^"norm"_(m tau) =  bold(k)_t / kappa g[tau]^2 bold(X)^"norm"_(m, f[tau]) 
+$
+
+We can then deduce the ideal normalized kernel $bold(H)^"norm"$ as a solution to @matmul:
+
+$
+bold(H)^"norm"_(t tau) &eq.def bold(k)_t / kappa g[tau]^2 delta_(t,f[tau]) \
+&= bold(k)_t / kappa bold(H)^"ideal"_(t tau)
+$
+]
+
+=== Thresholding of low power frames
+#text(fill: red)[Suppression des frames avec trop peu d'énergie, qui ont une forte probabilité d'introduire des indéterminations, justif spectrale (queue de reverbs) + justif musicale (peu probable que des moments sans énergie soient dans le mix)]
+
+=== Penalty functions
+#text(fill: red)[Définition des fonctions de régularisation utilisées et poids $lambda$ recommandés + warm-up/temperature/tempered. A garder même si non utilisé à la fin ?]
+
+Given the nature of DJ mixes, we expect $f$ and $g$ to have certain properties, from which we define additional penalty functions:
++ $g(tau)$ should be relatively smooth
+  - $g'(tau)$ should be small
++ $f(tau)$ should be piecewise linear (alternatively, piecewise continuous in the case of varying speeds)
++ $f(tau)$ should be injective
+  - there should be only one (or one cluster of, in the case of smearing) nonzero element(s) in a given column of $bold(H)$
+
+#text(fill: red)[ajouter L1 (et L2 si on s'en sert ?) voire L1+L2 (group lasso)]
+
+==== Gain smoothness
+
+We expect $g(tau)$ to be varying smoothly over time. Thus we introduce the *gain smoothness* penalty, that minimizes the difference between two consecutive gain values.
+
+Given that the gain of the column is given by 
+$ g[tau] = sqrt(sum_(t=0)^(T-1) bold(H)_(t tau) ) $
+
+$
+g[tau]^2 - g[tau-1]^2 &= sum_(t=0)^(T-1) bold(H)_(t tau) - sum_(t=0)^(T-1) bold(H)_(t, tau-1) \
+&= sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1)) 
+$
+So we define the penality function:
+
+$
+cal(P)_g (bold(H)) &= sum_(tau=1)^(K-1) sum_(t=0)^(T-1) (bold(H)_(t tau) - bold(H)_(t, tau-1))^2 \
+$
+
+*gradient calculation*
+$
+partial / (partial bold(H)_(i j)) (bold(H)_(t tau) - bold(H)_(t, tau-1))^2 = cases(
+  2(bold(H)_(i j) - bold(H)_(i, j-1)) &"if" i=t "and" j=tau,
+  -2(bold(H)_(i,j+1) - bold(H)_(i j)) &"if" i=t "and" j+1=tau,
+  0 &"otherwise"
+)
+$
+
+So:
+$
+(partial cal(P)_g) / (partial bold(H)_(i j)) &= 2(bold(H)_(i j) - bold(H)_(i, j-1)) -2(bold(H)_(i,j+1) - bold(H)_(i j)) \
+ &= 4 bold(H)_(i j) - 2 (bold(H)_(i,j-1) + bold(H)_(i,j+1))
+$
+
+*gradient term separation*:
+$
+gradient_bold(H)^+ cal(P)_g = 4 bold(H) \
+(gradient_bold(H)^- cal(P)_g)_(i j) = 2 (bold(H)_(i,j-1) + bold(H)_(i,j+1))
+$
+
+==== Diagonal smoothness
+
+We hypothesize the tracks to be played near their original speed, and that there will be significant time intervals without any loops or jumps. This appears in $bold(H)$ as diagonal line structures. We define a *diagonal smoothness* penalty that minimises the difference between diagonal cells of $bold(H)$:
+
+$
+cal(P)_d (bold(H)) = sum_(t=1)^(T-1) sum_(tau=1)^(K-1) (bold(H)_(t,tau) - bold(H)_(t-1, tau-1))^2
+$
+*gradient calculation*
+$
+partial / (partial bold(H)_(i j)) (bold(H)_(t tau) - bold(H)_(t-1, tau-1))^2 = cases(
+  2(bold(H)_(i j) - bold(H)_(i-1, j-1)) &"if" i=t "and" j=tau,
+  -2(bold(H)_(i+1,j+1) - bold(H)_(i j)) &"if" i+1=t "and" j+1=tau,
+  0 &"otherwise"
+)
+$
+
+So:
+$
+(partial cal(P)_d) / (partial bold(H)_(i j)) &= 2(bold(H)_(i j) - bold(H)_(i-1, j-1)) -2(bold(H)_(i+1,j+1) - bold(H)_(i j)) \
+ &= 4 bold(H)_(i j) - 2 (bold(H)_(i-1,j-1) + bold(H)_(i+1,j+1))
+$
+
+*gradient term separation*:
+$
+gradient_bold(H)^+ cal(P)_d = 4 bold(H) \
+(gradient_bold(H)^- cal(P)_d)_(i j) = 2 (bold(H)_(i-1,j-1) + bold(H)_(i+1,j+1))
+$
+
+==== Lineness
+
+The time-remapping function is expected to be piecewise continuous. In $bold(H)$, this means we can characterize the neighboring cells of a given activation. Given an activated cell $(i,j)$, only the up direction $(i+1,j)$, right direction $(i,j+1)$, or upper-right diagonal direction $(i+1, j+1)$ should be activated, but not any combination of the three.
+
+Thus we define the *lineness* penalty below, that gets larger when more than one of these direction are activated near an activated cell:
+
+$
+cal(P)_l (bold(H)) &= sum_(t=0)^(T-2) sum_(tau=0)^(K-2) bold(H)_(t,tau) (bold(H)_(t,tau+1) bold(H)_(t+1,tau+1) + bold(H)_(t+1,tau) bold(H)_(t+1,tau+1) + bold(H)_(t+1,tau) bold(H)_(t,tau+1) )
+$
+
+*gradient calculation and separation*
+$
+(partial cal(P)_l) / (partial bold(H)_(i j))  =gradient_bold(H)^+ cal(P)_l &= bold(H)_(i,j+1) bold(H)_(i+1,j+1) + bold(H)_(i+1,j) bold(H)_(i+1,j+1) + bold(H)_(i+1,j) bold(H)_(i,j+1) \
+&+ bold(H)_(i-1,j) bold(H)_(i,j+1) + bold(H)_(i-1,j) bold(H)_(i-1,j+1) \
+&+ bold(H)_(i,j-1) bold(H)_(i+1,j) + bold(H)_(i,j-1) bold(H)_(i+1,j-1) \
+&+ bold(H)_(i-1,j-1) bold(H)_(i-1,j) + bold(H)_(i-1,j-1) bold(H)_(i,j-1) \
+gradient_bold(H)^- cal(P)_l &= 0
+$
+
+=== Multi-pass NMF <sec:multi-pass>
 #text(fill: red)[Explication de l'algorithme, + creusage des matrices]
 
-=== Estimation des EQ
-#text(fill: red)[Découpage des matrices en bandes + justification matérielle]
+#figure(
+  kind: "algorithm",
+  supplement: [Algorithm],
 
-=== Invariance à la transposition
-#text(fill: red)[cf. divergence invariante à la transposition, ou NMFD, ou PLCA... ou etude que le melspec suffit]
+  pseudocode-list(numbered-title:[Multi-pass NMF])[
+    - *Inputs*: _hop_sizes_[], _overlap_
+    - *Output*: estimated activation matrix
+    + *Let* _Hs_[]
+    + *For* $i$ in _hop_sizes_.length()
+      + _hlen_ $<-$ _hop_sizes_[$i$]
+      + _wlen_ $<-$ _hop_ \* _overlap_
+      + $bold(W) <-$ spectrogram(concatenate(reference tracks), _hlen_, _wlen_))
+      + $bold(V) <-$ spectrogram(mix, _hlen_, _wlen_))
+      + *If* $i = 0$
+        + $bold(H) <-$ noise
+      + *Else*
+        + $bold(H) <-$ filter_and_resize(_Hs_[$i-1$], _hlen_) (@algo:filter-and-resize)
+      + *End If*
+    + _Hs_.append($bold(H)$)
+    + *End for*
+    + *Return* _Hs_[$i$]
+  ]
+) <algo:multipass>
 
-== Implémentation
+#figure(
+  kind: "algorithm",
+  supplement: [Algorithm],
+
+  pseudocode-list(numbered-title:[Filtering and resizing of the activation matrix])[
+    - *Inputs*: Activation matrix $bold(H)$, ...
+    - *Output*: Activation matrix $bold(H)'$
+    + #text(fill:red)[TODO]
+  ]
+) <algo:filter-and-resize>
+
+== Implementation
 #text(fill: red)[pytorch, discussion de cpu vs. gpu, github]
+
+=== Use of a sparse matrix representation
+#text(fill: red)[Matrice creuses, représentation BSR = mega speedup + baisse de conso mémoire]
 
 == Résultats
 === Sur mix synthétiques
 === Sur unmixdb
 === Sur mix réels
+
+== Extensions
+=== Estimation des EQ
+#text(fill: red)[Découpage des matrices en bandes + justification par le hardware]
+=== Invariance à la transposition
+#text(fill: red)[cf. divergence invariante à la transposition, ou NMFD, ou PLCA... ou etude quantitative que le binnage du melspec suffit. Tester aussi la CQT ?]
 
 = Conclusion
