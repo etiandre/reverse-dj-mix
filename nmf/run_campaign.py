@@ -168,27 +168,27 @@ def worker(mix: UnmixDBMix):
             )
 
         track_start_err_mean = param_estimator.error(
-            [r["est_track_start"] for r in tracks],
-            [r["real_track_start"] for r in tracks],
+            [r["track_start_est"] for r in tracks],
+            [r["track_start_real"] for r in tracks],
         )
         fadein_start_err_mean = param_estimator.error(
-            [r["est_fadein_start"] for r in tracks],
-            [r["real_fadein_start"] for r in tracks],
+            [r["fadein_start_est"] for r in tracks],
+            [r["fadein_start_real"] for r in tracks],
         )
         fadein_stop_err_mean = param_estimator.error(
-            [r["est_fadein_stop"] for r in tracks],
-            [r["real_fadein_stop"] for r in tracks],
+            [r["fadein_stop_est"] for r in tracks],
+            [r["fadein_stop_real"] for r in tracks],
         )
         fadeout_start_err_mean = param_estimator.error(
-            [r["est_fadeout_start"] for r in tracks],
-            [r["real_fadeout_start"] for r in tracks],
+            [r["fadeout_start_est"] for r in tracks],
+            [r["fadeout_start_real"] for r in tracks],
         )
         fadeout_stop_err_mean = param_estimator.error(
-            [r["est_fadeout_stop"] for r in tracks],
-            [r["real_fadeout_stop"] for r in tracks],
+            [r["fadeout_stop_est"] for r in tracks],
+            [r["fadeout_stop_real"] for r in tracks],
         )
         speed_err_mean = param_estimator.error(
-            [r["est_speed"] for r in tracks], [r["real_speed"] for r in tracks]
+            [r["speed_est"] for r in tracks], [r["speed_real"] for r in tracks]
         )
 
         tock = time.time()
