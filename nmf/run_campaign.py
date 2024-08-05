@@ -71,7 +71,7 @@ def worker(mix: UnmixDBMix):
 
     try:
         logger.info(f"Starting work on {mix.name}")
-        results["mix.name"] = mix.name
+        results["name"] = mix.name
 
         inputs = [track.audio for track in mix.tracks] + [mix.audio]
 
@@ -108,7 +108,7 @@ def worker(mix: UnmixDBMix):
         est_warp = WARP_ESTOR(learner.H, learner.split_idx, HOP_SIZES[-1])
 
         # estimate and plot highparams
-        highparams = []
+        tracks = []
         for i in range(3):
             (
                 est_track_start,
@@ -144,7 +144,7 @@ def worker(mix: UnmixDBMix):
             )
             err_speed = param_estimator.error(est_speed, real_speed)
 
-            highparams.append(
+            tracks.append(
                 {
                     "track_start_est": est_track_start,
                     "fadein_start_est": est_fadein_start,
@@ -167,16 +167,40 @@ def worker(mix: UnmixDBMix):
                 }
             )
 
+        track_start_err_mean = param_estimator.error(
+            [r["est_track_start"] for r in tracks],
+            [r["real_track_start"] for r in tracks],
+        )
+        fadein_start_err_mean = param_estimator.error(
+            [r["est_fadein_start"] for r in tracks],
+            [r["real_fadein_start"] for r in tracks],
+        )
+        fadein_stop_err_mean = param_estimator.error(
+            [r["est_fadein_stop"] for r in tracks],
+            [r["real_fadein_stop"] for r in tracks],
+        )
+        fadeout_start_err_mean = param_estimator.error(
+            [r["est_fadeout_start"] for r in tracks],
+            [r["real_fadeout_start"] for r in tracks],
+        )
+        fadeout_stop_err_mean = param_estimator.error(
+            [r["est_fadeout_stop"] for r in tracks],
+            [r["real_fadeout_stop"] for r in tracks],
+        )
+        speed_err_mean = param_estimator.error(
+            [r["est_speed"] for r in tracks], [r["real_speed"] for r in tracks]
+        )
+
         tock = time.time()
 
         # save figures
         fig = plt.figure()
         plot.plot_gain(tau, est_gain, real_gain)
-        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/{GAIN_ESTOR.__name__}.png")
+        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/gain.png")
 
         fig = plt.figure()
         plot.plot_warp(tau, est_warp, real_warp)
-        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/{WARP_ESTOR.__name__}.png")
+        fig.savefig(RESULTS_DIR / f"{date}/{mix.name}/warp.png")
 
         plot.plot_nmf(learner).savefig(RESULTS_DIR / f"{date}/{mix.name}/nmf.png")
 
@@ -194,7 +218,13 @@ def worker(mix: UnmixDBMix):
         results["H"] = learner.H.detach().numpy()
         results["tau"] = tau
         results["time"] = tock - tick
-        results["highparams"] = highparams
+        results["tracks"] = tracks
+        results["track_start_err"] = track_start_err_mean
+        results["fadein_start_err"] = fadein_start_err_mean
+        results["fadein_stop_err"] = fadein_stop_err_mean
+        results["fadeout_start_err"] = fadeout_start_err_mean
+        results["fadeout_stop_err"] = fadeout_stop_err_mean
+        results["speed_err"] = speed_err_mean
 
     except Exception as e:
         if e is KeyboardInterrupt:
