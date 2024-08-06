@@ -158,13 +158,18 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
         fadeout_start,
         fadeout_stop,
     ) = fit_ideal_gain(tau[longest_slice], gain_norm[longest_slice])
+
+    ## speed estimation
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
     speed, warp_intercept, _, _, _ = scipy.stats.linregress(tau[mask], warp[mask])
-    linregress_ret = scipy.stats.linregress(tau[mask], warp[mask])
+    # filter warp
+    warp_filt = scipy.ndimage.median_filter(warp[mask], size=kernel_size, axes=0)
+    # do linear regression
+    linregress_ret = scipy.stats.linregress(tau[mask], warp_filt)
     speed: float = linregress_ret.slope
     warp_intercept: float = linregress_ret.intercept
-    
+
     # calculate track start time
     track_start = -warp_intercept / speed
 
@@ -178,6 +183,7 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
         axes[0].plot(
             [fadein_start, fadein_stop, fadeout_start, fadeout_stop],
             [0, 1, 1, 0],
+            "--",
             label="fit",
         )
 
@@ -190,7 +196,8 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
 
         axes[1].plot(tau, warp, label="input", alpha=0.5)
         axes[1].plot(tau[mask], warp[mask], label="masked")
-        axes[1].plot(tau[mask], speed * tau[mask] + warp_intercept, label="fit")
+        axes[1].plot(tau[mask], warp_filt, label="filt")
+        axes[1].plot(tau[mask], speed * tau[mask] + warp_intercept, "--", label="fit")
         axes[1].set_title("warp")
         axes[1].legend()
     else:
