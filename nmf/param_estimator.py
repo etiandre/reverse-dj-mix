@@ -66,10 +66,11 @@ class WarpEstimator(enum.Enum):
         return _apply_Hi(H, split_idx, fn=lambda Hi: np.argmax(Hi, axis=0)) * hop_size
 
 
-def ideal_gain(tau, tau0, a, b, c, g_max):
+def ideal_gain(tau, tau0, a, b, c):
     tau1 = tau0 + a
     tau2 = tau1 + b
     tau3 = tau2 + c
+    g_max = 1.0
     return np.piecewise(
         tau,
         [
@@ -91,10 +92,9 @@ def ideal_gain(tau, tau0, a, b, c, g_max):
 
 def fit_ideal_gain(tau, gain):
     start_bounds = [tau[0], tau[-1]]
-    fadein_duration_bounds = [1, 10]
+    fadein_duration_bounds = [5, 15]
     play_duration_bounds = [1, np.inf]
-    fadeout_duration_bounds = [1, 10]
-    gmax_bounds = [0.1, 1]
+    fadeout_duration_bounds = [5, 15]
     # fit ideal gain to signal
     p, e = scipy.optimize.curve_fit(
         ideal_gain,
@@ -106,13 +106,12 @@ def fit_ideal_gain(tau, gain):
                 fadein_duration_bounds,
                 play_duration_bounds,
                 fadeout_duration_bounds,
-                gmax_bounds,
             ]
         ),
     )
 
     # calculate fade bounds and slopes
-    tau0, a, b, c, g_max = p
+    tau0, a, b, c = p
     fadein_start = tau0
     fadein_stop = tau0 + a
     fadeout_start = tau0 + a + b
@@ -122,8 +121,6 @@ def fit_ideal_gain(tau, gain):
         fadein_stop,
         fadeout_start,
         fadeout_stop,
-        0,
-        g_max,
     )
 
 
@@ -135,7 +132,8 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
     gain_filt = scipy.ndimage.median_filter(gain, size=kernel_size, axes=0)
 
     # normalize
-    gain_norm = gain_filt / gain_filt.max()
+    gain_norm = gain_filt * 3
+    gain_norm = np.clip(gain_norm, 0, 1)
 
     # threshold and find contiguous playing slices
     thresh_gain_mask = np.ma.masked_array(gain_norm)
@@ -159,8 +157,6 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
         fadein_stop,
         fadeout_start,
         fadeout_stop,
-        g_min,
-        g_max,
     ) = fit_ideal_gain(tau[longest_slice], gain_norm[longest_slice])
     # use only the part of warp where gain is > 0
     mask = (tau > fadein_start) & (tau < fadeout_stop) & ~np.isnan(warp)
@@ -181,7 +177,7 @@ def estimate_highparams(tau, gain, warp, medfilt_duration=5, doplot=False):
         axes[0].axvline(tau[longest_slice.stop], linestyle="--")
         axes[0].plot(
             [fadein_start, fadein_stop, fadeout_start, fadeout_stop],
-            [g_min, g_max, g_max, g_min],
+            [0, 1, 1, 0],
             label="fit",
         )
 
