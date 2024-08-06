@@ -26,7 +26,7 @@ def read_meta(labels_path: Path):
             elif command == "speed":
                 meta[track_id]["speed"] = float(arg)
             elif command == "bpm":
-                pass
+                meta[track_id]["bpm"] = float(arg)
             elif command == "fadein":
                 meta[track_id]["fadein"] = (t0, t1)
             elif command == "fadeout":
