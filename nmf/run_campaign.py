@@ -1,10 +1,9 @@
 import datetime
-import itertools
 import json
 import logging
 import os
 import pickle
-from random import shuffle
+import subprocess
 import time
 from pathlib import Path
 
@@ -237,6 +236,16 @@ def worker(mix: UnmixDBMix):
         plt.close("all")
 
 
+def git_describe():
+    return (
+        subprocess.check_output(
+            ["git", "describe", "--always"], cwd=Path(__file__).parent
+        )
+        .decode()
+        .strip()
+    )
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -266,6 +275,7 @@ if __name__ == "__main__":
                 "ITER_MAX": ITER_MAX,
                 "RESULTS_DIR": str(RESULTS_DIR.resolve()),
                 "UNMIXDB_PATH": str(UNMIXDB_PATH.resolve()),
+                "GIT_REVISION": git_describe(),
             },
             f,
         )
