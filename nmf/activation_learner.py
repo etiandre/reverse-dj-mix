@@ -117,7 +117,6 @@ class ActivationLearner:
 
         # normalize W and V
         W_col_power = W.sum(axis=0, keepdims=True)
-        print("W col power", W_col_power)
         W_ignored_cols = W_col_power / W.shape[0] < low_power_threshold
         if np.any(W_ignored_cols):
             logger.warning(f"Ignored columns: {np.where(W_ignored_cols)[1]}")
