@@ -159,7 +159,7 @@ class UnmixDB(Dataset):
 
             for audio_path in subset.glob("mixes/*.mp3"):
                 if only_good_mixes and audio_path.name not in good_mixes:
-                    print(f"skip bad mix {audio_path.name}")
+                    # print(f"skip bad mix {audio_path.name}")
                     continue
                 if m := re.match(r"\w+-(\w+)-(\w+)-(\d+)", audio_path.stem):
                     timestretch = m.group(1)
