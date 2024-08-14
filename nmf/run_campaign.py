@@ -141,7 +141,7 @@ def worker(mix: UnmixDBMix):
             err_fadeout_stop = param_estimator.error(
                 est_fadeout_stop, real_fadeout_stop
             )
-            err_speed = param_estimator.error(est_speed, real_speed)
+            err_speed = param_estimator.rel_error(est_speed, real_speed)
 
             tracks.append(
                 {
@@ -186,7 +186,7 @@ def worker(mix: UnmixDBMix):
             [r["fadeout_stop_est"] for r in tracks],
             [r["fadeout_stop_real"] for r in tracks],
         )
-        speed_err_mean = param_estimator.error(
+        speed_err_mean = param_estimator.rel_error(
             [r["speed_est"] for r in tracks], [r["speed_real"] for r in tracks]
         )
 
