@@ -285,7 +285,6 @@ def multistage(
                 diag_size=max(2, int(carve_min_duration / hop_size)),
                 max_slope=carve_max_slope,
                 n_filters=15,
-                diag_window="hann",
             )
             if doplot:
                 plt.figure("H after resizing and carving")

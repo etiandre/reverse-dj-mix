@@ -16,29 +16,6 @@ import scipy.signal
 logger = logging.getLogger(__name__)
 
 
-def line_kernel(
-    window: str,
-    n: int,
-    *,
-    slope: float = 1.0,
-    angle: Optional[float] = None,
-) -> np.ndarray:
-    if angle is None:
-        angle = np.arctan(slope)
-
-    win = np.diag(scipy.signal.get_window(window, n, fftbins=False))
-
-    if not np.isclose(angle, np.pi / 4):
-        win = scipy.ndimage.rotate(
-            win, 45 - angle * 180 / np.pi, order=5, prefilter=False
-        )
-
-    np.clip(win, 0, None, out=win)
-    win /= win.max()
-
-    return win
-
-
 def one_pixel_line_kernel(n, slope):
     angle = np.arctan(slope)
     x = int(n * np.cos(angle))
@@ -55,14 +32,11 @@ def line_enhance(
     size: int,
     max_slope: float,
     n_filters: int,
-    diag_window: str,
 ):
     min_slope = 1.0 / max_slope
     ret = np.zeros_like(H)
     for left, right in zip(split_idx, split_idx[1:]):
         Hi = H[left:right, :]
-        # Hi = np.ascontiguousarray(Hi)
-        # Hi_skel = skimage.morphology.skeletonize(Hi).astype(float)
 
         for slope in np.logspace(
             np.log2(min_slope), np.log2(max_slope), num=n_filters, base=2
@@ -104,11 +78,10 @@ def H_interpass_enhance(
     diag_size: int = 3,
     max_slope: float = 2,
     n_filters: int = 7,
-    diag_window: str = "boxcar",
     doplot=False,
 ):
     logger.info(
-        f"H_enhance: {dest_shape=}, {threshold=}, {blur_size=}, {diag_size=}, {max_slope=}, {n_filters=}, {diag_window=}"
+        f"H_enhance: {dest_shape=}, {threshold=}, {blur_size=}, {diag_size=}, {max_slope=}, {n_filters=}"
     )
 
     H_np = H.detach().cpu().numpy()
@@ -118,9 +91,7 @@ def H_interpass_enhance(
         logger.warn(f"diag size ({diag_size}) is too small, skipping line enhance")
         H_line = H_np
     else:
-        H_line = line_enhance(
-            H_np, split_idx, diag_size, max_slope, n_filters, diag_window
-        )
+        H_line = line_enhance(H_np, split_idx, diag_size, max_slope, n_filters)
 
     # blur
     H_blur = blur(H_line, split_idx, blur_size)
