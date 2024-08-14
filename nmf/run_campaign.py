@@ -36,6 +36,7 @@ CARVE_THRESHOLD = 1e-6
 CARVE_BLUR_SIZE = 3
 CARVE_MIN_DURATION = 10
 CARVE_MAX_SLOPE = 1.5
+NOISE_DIM = 0
 # stop conditions
 DLOSS_MIN = 1e-10
 ITER_MAX = 5000
@@ -91,6 +92,7 @@ def worker(mix: UnmixDBMix):
             carve_blur_size=CARVE_BLUR_SIZE,
             carve_min_duration=CARVE_MIN_DURATION,
             carve_max_slope=CARVE_MAX_SLOPE,
+            noise_dim=NOISE_DIM,
         )
 
         # get ground truth
@@ -275,9 +277,11 @@ if __name__ == "__main__":
                 "ITER_MAX": ITER_MAX,
                 "RESULTS_DIR": str(RESULTS_DIR.resolve()),
                 "UNMIXDB_PATH": str(UNMIXDB_PATH.resolve()),
+                "NOISE_DIM": NOISE_DIM,
                 "GIT_REVISION": git_describe(),
             },
             f,
+            indent=4,
         )
     if args.workers == 1:
         for mix in unmixdb.mixes:

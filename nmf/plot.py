@@ -1,3 +1,4 @@
+from re import split
 from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt
@@ -126,8 +127,15 @@ def plot_H(H: np.ndarray, split_idx=None, ignored_lines=None, ax=None):
                 linestyle="--",
                 path_effects=TRACK_BOUNDARY_PATHEFFECTS,
             )
+            if track == len(split_idx) - 2:
+                ax.axhline(
+                    b - 0.5,
+                    color=TRACK_BOUNDARY_COLOR,
+                    linestyle="--",
+                    path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+                )
             ax.annotate(
-                f"track {track}",
+                f"{track+1}",
                 (0, (a + b) / 2),
                 color=TRACK_BOUNDARY_COLOR,
                 path_effects=TRACK_BOUNDARY_PATHEFFECTS,
@@ -165,8 +173,15 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ignored_cols=None, ax=None):
                 linestyle="--",
                 path_effects=TRACK_BOUNDARY_PATHEFFECTS,
             )
+            if track == len(split_idx) - 2:
+                ax.axvline(
+                    b - 0.5,
+                    color=TRACK_BOUNDARY_COLOR,
+                    linestyle="--",
+                    path_effects=TRACK_BOUNDARY_PATHEFFECTS,
+                )
             ax.annotate(
-                f"track {track}",
+                f"{track+1}",
                 ((a + b) / 2, 1),
                 color=TRACK_BOUNDARY_COLOR,
                 path_effects=TRACK_BOUNDARY_PATHEFFECTS,
@@ -186,15 +201,22 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ignored_cols=None, ax=None):
     return im
 
 
-def plot_nmf(learner):
+def plot_nmf(learner, internal=False):
     fig, axes = plt.subplots(2, 2, figsize=(15, 6))
 
-    im = plot_pow_spec(learner.V.cpu().detach().numpy(), ax=axes[0, 0])
+    im = plot_pow_spec(
+        learner.nmf.V.cpu().detach().numpy()
+        if internal
+        else learner.V.cpu().detach().numpy(),
+        ax=axes[0, 0],
+    )
     fig.colorbar(im, ax=axes[0, 0])
     axes[0, 0].set_title("V")
 
     im = plot_H(
-        learner.H.cpu().detach().numpy(),
+        learner.nmf.H.cpu().detach().numpy()
+        if internal
+        else learner.H.cpu().detach().numpy(),
         split_idx=learner.split_idx,
         ignored_lines=learner.W_ignored_cols,
         ax=axes[0, 1],
@@ -203,7 +225,9 @@ def plot_nmf(learner):
     axes[0, 1].set_title("H")
 
     im = plot_pow_spec(
-        learner.W.cpu().detach().numpy(),
+        learner.nmf.W.cpu().detach().numpy()
+        if internal
+        else learner.W.cpu().detach().numpy(),
         split_idx=learner.split_idx,
         ignored_cols=learner.W_ignored_cols,
         ax=axes[1, 0],
@@ -211,7 +235,12 @@ def plot_nmf(learner):
     fig.colorbar(im, ax=axes[1, 0])
     axes[1, 0].set_title("W")
 
-    im = plot_pow_spec((learner.W @ learner.H).cpu().detach().numpy(), ax=axes[1, 1])
+    im = plot_pow_spec(
+        (learner.W @ learner.H).cpu().detach().numpy()
+        if internal
+        else (learner.nmf.W @ learner.nmf.H).cpu().detach().numpy(),
+        ax=axes[1, 1],
+    )
     fig.colorbar(im, ax=axes[1, 1])
     axes[1, 1].set_title("WH")
 

@@ -66,6 +66,7 @@ class ActivationLearner:
         stft_win_func: str = "hann",
         n_mels: int = 512,
         low_power_threshold: float = 0.01,
+        noise_dim: int = 0,
         use_gpu: bool = False,
     ):
         win_len = int(win_size * fs)
@@ -80,6 +81,7 @@ class ActivationLearner:
         self.win_size = win_size
         self.hop_size = hop_size
         self.stft_win_func = stft_win_func
+        self.noise_dim = noise_dim
 
         # transform inputs
         logger.info("Transforming inputs")
@@ -110,9 +112,12 @@ class ActivationLearner:
         V = input_powspecs[-1]
 
         W = np.concatenate(input_powspecs[:-1], axis=1)
+        if noise_dim > 0:
+            W = np.concatenate([W, np.ones((W.shape[0], noise_dim))], axis=1)
 
         # normalize W and V
         W_col_power = W.sum(axis=0, keepdims=True)
+        print("W col power", W_col_power)
         W_ignored_cols = W_col_power / W.shape[0] < low_power_threshold
         if np.any(W_ignored_cols):
             logger.warning(f"Ignored columns: {np.where(W_ignored_cols)[1]}")
@@ -136,6 +141,7 @@ class ActivationLearner:
             pen_func, self.pen_warmups = [], []
         else:
             pen_func, self.pen_warmups = zip(*penalties)
+
         self.nmf = NMF(
             torch.Tensor(V).to(device),
             torch.Tensor(W).to(device),
@@ -143,7 +149,7 @@ class ActivationLearner:
             divergence,
             [],
             pen_func,
-            trainable_W=False,
+            trainable_W=noise_dim > 0,
         ).to(device)
 
     def fit(
@@ -159,7 +165,16 @@ class ActivationLearner:
             pen_lambdas = [
                 w.get(i) if isinstance(w, Warmup) else w for w in self.pen_warmups
             ]
+
+            if self.noise_dim > 0:
+                nmf_W_save = self.nmf.W[:, : -self.noise_dim].clone()
+
             self.nmf.iterate([], pen_lambdas)
+
+            if self.noise_dim > 0:
+                with torch.no_grad():
+                    self.nmf.W[:, : -self.noise_dim] = nmf_W_save
+
             with torch.no_grad():
                 self.nmf.H.clamp_(max=torch.Tensor(self.W_norm_fac.T / self.V_norm_fac))
 
@@ -218,18 +233,34 @@ class ActivationLearner:
 
     @property
     def H(self) -> torch.Tensor:
+        """returns activation rescaled matrix without noise lines, and with ignored
+        columns set to zero"""
         ret = self.nmf.H.detach().clone()
         ret[self.W_ignored_cols.flatten(), :] = 0
-        return ret * self.V_norm_fac / self.W_norm_fac.T
+        ret *= self.V_norm_fac / self.W_norm_fac.T
+        if self.noise_dim > 0:
+            return ret[: -self.noise_dim, :]
+        else:
+            return ret
 
     @H.setter
     def H(self, value: torch.Tensor):
+        """sets activation matrix. Noise lines, ignored columns and scaling is added here"""
+        if self.noise_dim > 0:
+            value = torch.concatenate(
+                [value, torch.ones(self.noise_dim, value.shape[1])], dim=0
+            )
         value[self.W_ignored_cols.flatten(), :] = 0
-        self.nmf.H = value / self.V_norm_fac * self.W_norm_fac.T
+        value /= self.V_norm_fac * self.W_norm_fac.T
+        self.nmf.H = value
 
     @property
     def W(self):
-        return self.nmf.W * self.W_norm_fac
+        ret = self.nmf.W * self.W_norm_fac
+        if self.noise_dim > 0:
+            return ret[:, : -self.noise_dim]
+        else:
+            return ret
 
     @property
     def V(self):
@@ -251,6 +282,7 @@ def multistage(
     carve_blur_size: int,
     carve_min_duration: float,
     carve_max_slope: float,
+    noise_dim: int,
     doplot: bool = False,
 ):
     learners: list[ActivationLearner] = []
@@ -271,6 +303,7 @@ def multistage(
             low_power_threshold=low_power_threshold,
             use_gpu=False,
             spec_power=spec_power,
+            noise_dim=noise_dim,
             stft_win_func="barthann",
         )
 
@@ -288,7 +321,7 @@ def multistage(
             )
             if doplot:
                 plt.figure("H after resizing and carving")
-                im=plot.plot_H(new_H.cpu().detach().numpy())
+                im = plot.plot_H(new_H.cpu().detach().numpy())
                 plt.colorbar(im)
                 plt.show()
 
@@ -298,7 +331,8 @@ def multistage(
         if doplot:
             plot.plot_nmf(learner)
             plt.show()
-            plt.figure()
+            plot.plot_nmf(learner, internal=True)
+            plt.show()
             plot.plot_loss_history(loss_history)
             plt.show()
         learners.append(learner)
