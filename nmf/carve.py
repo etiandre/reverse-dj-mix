@@ -85,6 +85,7 @@ def H_interpass_enhance(
     )
 
     H_np = H.detach().cpu().numpy()
+    plot_prefix = f"interpass_{dest_shape[0]}x{dest_shape[1]}"
 
     # filter for lines
     if diag_size <= 3:
@@ -97,17 +98,29 @@ def H_interpass_enhance(
     H_blur = blur(H_line, split_idx, blur_size)
 
     # threshold
-    H_blur[H_blur / H_blur.max() < threshold] = 0
+    H_thresh = H_blur.copy()
+    H_thresh[H_thresh / H_thresh.max() < threshold] = 0
 
     # resize
     if dest_shape != H.shape:
         H_resized = cv2.resize(
-            H_blur, (dest_shape[1], dest_shape[0]), interpolation=cv2.INTER_AREA
+            H_thresh, (dest_shape[1], dest_shape[0]), interpolation=cv2.INTER_AREA
         )
     else:
-        H_resized = H_blur
+        H_resized = H_thresh
 
     if doplot:
-        fig, axs = plt.subplots(1, 3)
-        plot.plot_H(H_np, ax=axs[0])
+        fig, axs = plt.subplots(1, 5)
+        plot.plot_H(H_np, split_idx, ax=axs[0])
+        plot.plot_H(H_line, split_idx, ax=axs[1])
+        plot.plot_H(H_blur, split_idx, ax=axs[2])
+        plot.plot_H(H_thresh, split_idx, ax=axs[3])
+        plot.plot_H(H_resized, split_idx, ax=axs[4])
+        axs[0].set_title("Input")
+        axs[1].set_title("Morphological filtering")
+        axs[2].set_title("Blurring")
+        axs[3].set_title("Thresholding")
+        axs[4].set_title("Resizing")
+        plt.savefig(f"{plot_prefix}_carve.svg")
+        
     return torch.tensor(H_resized).to(H.device)
