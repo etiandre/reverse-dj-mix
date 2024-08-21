@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Union
 from .classes import FromFileMix, FromFileRefTrack, Mix, RefTrack, Dataset, FS
 import numpy as np
-import pyrubberband
+# import pyrubberband
 
 
 class CrossfadeMix(Mix):
@@ -81,38 +81,38 @@ class CrossfadeMix(Mix):
         return np.stack(arrays=(warp_A, warp_B)).T
 
 
-class TimestretchMix(Mix):
-    def __init__(
-        self,
-        name: str,
-        track: RefTrack,
-        timemap: list[tuple[float, float]],
-        duration: float,
-    ):
-        self._name = name
-        self._track = track
-        timemap.append((track.duration, duration))
-        self._timemap = timemap
+# class TimestretchMix(Mix):
+#     def __init__(
+#         self,
+#         name: str,
+#         track: RefTrack,
+#         timemap: list[tuple[float, float]],
+#         duration: float,
+#     ):
+#         self._name = name
+#         self._track = track
+#         timemap.append((track.duration, duration))
+#         self._timemap = timemap
 
-    @property
-    def name(self):
-        return self._name
+#     @property
+#     def name(self):
+#         return self._name
 
-    @cached_property
-    def audio(self) -> np.ndarray:
-        timemap_samples = [(int(a * FS), int(b * FS)) for a, b in self._timemap]
-        return pyrubberband.timemap_stretch(self._track.audio, FS, timemap_samples)
+#     @cached_property
+#     def audio(self) -> np.ndarray:
+#         timemap_samples = [(int(a * FS), int(b * FS)) for a, b in self._timemap]
+#         return pyrubberband.timemap_stretch(self._track.audio, FS, timemap_samples)
 
-    def gain(self, times: np.ndarray) -> np.ndarray:
-        return np.atleast_2d(np.ones_like(times)).T
+#     def gain(self, times: np.ndarray) -> np.ndarray:
+#         return np.atleast_2d(np.ones_like(times)).T
 
-    def warp(self, times: np.ndarray) -> np.ndarray:
-        x, y = zip(*self._timemap)
-        return np.atleast_2d(np.interp(times, y, x)).T
+#     def warp(self, times: np.ndarray) -> np.ndarray:
+#         x, y = zip(*self._timemap)
+#         return np.atleast_2d(np.interp(times, y, x)).T
 
-    @property
-    def tracks(self):
-        return [self._track]
+#     @property
+#     def tracks(self):
+#         return [self._track]
 
 
 class SyntheticDB(Dataset):
@@ -126,5 +126,5 @@ class SyntheticDB(Dataset):
             CrossfadeMix("linear-mix", DEADMAU5_A, DEADMAU5_B, 3.75, 7.5),
             CrossfadeMix("linear-mix-desync", DEADMAU5_A, DEADMAU5_B, 3.6, 7.5),
             CrossfadeMix("nuttah-deadmau5", NUTTAH, DEADMAU5_B, 2, 5),
-            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2), (4, 5)], 8),
+            # TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2), (4, 5)], 8),
         ]

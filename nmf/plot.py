@@ -74,9 +74,9 @@ def plot_warp(
             ax.plot(
                 tau,
                 t,
-                "--" if real else "x",
+                "--" if real else ".",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
-                label=f"track {i}" if not real else None,
+                label=f"track {i+1}" if not real else None,
                 alpha=1 if real else 0.7,
             )
 
@@ -101,9 +101,9 @@ def plot_gain(
             ax.plot(
                 tau,
                 g,
-                "--" if real else "x",
+                "--" if real else ".",
                 color=COLOR_CYCLE[i % len(COLOR_CYCLE)],
-                label=f"track {i}" if not real else None,
+                label=f"track {i + 1}" if not real else None,
             )
 
     plot_g(gains, False)
