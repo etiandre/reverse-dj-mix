@@ -317,12 +317,8 @@ def multistage(
                 diag_size=max(2, int(carve_min_duration / hop_size)),
                 max_slope=carve_max_slope,
                 n_filters=15,
+                doplot=doplot,
             )
-            if doplot:
-                plt.figure("H after resizing and carving")
-                im = plot.plot_H(new_H.cpu().detach().numpy())
-                plt.colorbar(im)
-                plt.show()
 
             learner.H = new_H
 
@@ -335,4 +331,13 @@ def multistage(
             plot.plot_loss_history(loss_history)
             plt.show()
         learners.append(learner)
+
+    if doplot:
+        fig, axs = plt.subplots(1, len(learners), figsize=(len(learners) * 4, 4))
+        for i, l in enumerate(learners):
+            im = plot.plot_H(l.H.cpu().detach().numpy(), l.split_idx, ax=axs[i])
+            fig.colorbar(im, ax=axs[i])
+            axs[i].set_title(f"hop = {hops[i]} s.")
+        fig.tight_layout()
+        fig.savefig(f"multipass.svg")
     return learners[-1], loss_history

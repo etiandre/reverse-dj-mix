@@ -110,17 +110,24 @@ def H_interpass_enhance(
         H_resized = H_thresh
 
     if doplot:
-        fig, axs = plt.subplots(1, 5)
-        plot.plot_H(H_np, split_idx, ax=axs[0])
-        plot.plot_H(H_line, split_idx, ax=axs[1])
-        plot.plot_H(H_blur, split_idx, ax=axs[2])
-        plot.plot_H(H_thresh, split_idx, ax=axs[3])
-        plot.plot_H(H_resized, split_idx, ax=axs[4])
+        fig, axs = plt.subplots(1, 5, figsize=(18, 5))
+        im = plot.plot_H(H_np, split_idx, ax=axs[0])
+        fig.colorbar(im, ax=axs[0])
+        im = plot.plot_H(H_line, split_idx, ax=axs[1])
+        fig.colorbar(im, ax=axs[1])
+        im = plot.plot_H(H_blur, split_idx, ax=axs[2])
+        fig.colorbar(im, ax=axs[2])
+        im = plot.plot_H(H_thresh, split_idx, ax=axs[3])
+        fig.colorbar(im, ax=axs[3])
+        im = plot.plot_H(H_resized, ax=axs[4])
+        fig.colorbar(im, ax=axs[4])
         axs[0].set_title("Input")
         axs[1].set_title("Morphological filtering")
         axs[2].set_title("Blurring")
         axs[3].set_title("Thresholding")
         axs[4].set_title("Resizing")
-        plt.savefig(f"{plot_prefix}_carve.svg")
-        
+        fig.savefig(f"{plot_prefix}_carve.svg")
+        fig.tight_layout()
+        fig.show()
+
     return torch.tensor(H_resized).to(H.device)

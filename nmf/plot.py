@@ -115,9 +115,14 @@ def plot_gain(
     # ax.set_ylim(0, 1)
 
 
-def plot_H(H: np.ndarray, split_idx=None, ignored_lines=None, ax=None):
+def plot_H(
+    H: np.ndarray, split_idx=None, ignored_lines=None, ax=None, highlight_zero=True
+):
     ax = ax or plt.gca()
-    im = imshow_highlight_zero(H, ax=ax, cmap=CMAP, aspect="auto", origin="lower")
+    if highlight_zero:
+        im = imshow_highlight_zero(H, ax=ax, cmap=CMAP, aspect="auto", origin="lower")
+    else:
+        im = ax.imshow(H, cmap=CMAP, aspect="auto", origin="lower")
 
     if split_idx is not None:
         for track, (a, b) in enumerate(zip(split_idx, split_idx[1:])):

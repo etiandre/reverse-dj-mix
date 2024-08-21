@@ -6,7 +6,7 @@
 #let title = "DJ mix reverse engineering using multi-pass non-negative matrix factorization"
 
 #set page(header: context {
-  if counter(page).get().first() > 2 [
+  if counter(page).get().first() > 3 [
     #align(center)[
       #smallcaps(title)
     ]
@@ -91,23 +91,35 @@
   #v(1fr)
   #par(justify: false)[
     *Abstract* \
-    #lorem(200)
+    Disc jockeys (DJs) create mixes by creatively combining existing music tracks, applying various transformations such as time-warping and audio effects. DJ-mix reverse engineering involves computationally analyzing these mixes to extract the parameters used in their creation. Previous approaches have treated this process as two separate tasks: alignment and unmixing, but these methods are difficult to generalize to the wide range of transformations that DJs employ. This report introduces an integrated approach for both tasks using a multi-pass Non-negative Matrix Factorization (NMF) algorithm that is able to extract arbitrary time-warping transformations while being robust to noise. The method's effectiveness is evaluated both qualitatively, through representative examples, and quantitatively, using a publicly available dataset. Additionally, the report explores the challenges of developing suitable datasets for DJ mix reverse engineering, proposing potential new methods for dataset creation.
   ]
   #v(1fr)
   #par(justify: false)[
     *Résumé* \
-    #lorem(200)
+    Les disc-jockeys (DJ) créent des mixes en combinant des pistes musicales de manière créative, en appliquant diverses transformations telles que la manipulation temporelle ou des effets audio. La rétro-ingénierie de mix DJ consiste en l'analyse computationelle de ceux-ci afin d'en extraire les paramètres utilisés lors de leur création. Les approches antérieures ont traité ce processus comme deux tâches distinctes : l'alignement et le démixage, mais ces méthodes sont difficiles à généraliser à la large gamme de transformations employées par les DJ. Ce rapport introduit une approche intégrée pour les deux tâches en utilisant un algorithme de factorisation en matrices non-négatives (NMF) multi-passe capable d'extraire des manipulations temporelles arbitraires tout en étant robuste au bruit. L'efficacité de la méthode est évaluée à la fois qualitativement, à l'aide d'exemples représentatifs, et quantitativement, à l'aide d'un ensemble de données accessibles au public. En outre, le rapport explore les défis posés par le développement de jeux de données appropriés pour la rétro-ingénierie de mix DJ, en proposant de nouvelles méthodes pour la création de jeux de données.
   ]
   #v(1fr)
 ]
 
+#pagebreak()
 
+#align(right)[
+  #emph[
+    I would like to express my gratitude to: \
+    Diemo and Dominique, for their continued mentorship and support, as well as their patient listening to my ramblings; \
+    Rémi, Roland and Geoffroy for their help and valuable insights; \
+    Luis for their enthusiasm and keenness to share; \
+    The band of merry IRCAM interns for making work days enjoyable.
+  ]
+]
+
+//////
 #show outline.entry.where(level: 1): it => {
   v(12pt, weak: true)
   strong(it)
 }
 #outline(indent: auto)
-
+///////
 #set par(justify: true)
 #show link: set text(fill: blue.darken(60%))
 
@@ -121,7 +133,27 @@
 //////////////////////////////////////////
 
 #heading(numbering: none)[Glossary and mathematical conventions]
-/ STFT: Short-Time Fourier Transform
+/ Track: A recorded piece of music or song.
+/ Mix: A creative combination of overlapping consecutive tracks, potentially transformed using various effects and techniques.
+/ Transition: The overlapping segment where a track finishes and the next one starts playing.
+/ Fade-in, fade-out: A way to introduce and de introduce tracks using a continuous gain increase or decrease.
+/ Cross-fade: A transition made of the simultaneous use of a fade-out and a fade-in.
+/ DJ: Disc-Jockey
+/ Cue point: the point of a track at which it is introduced in a mix.
+/ Time-warping, warping: time transformation of an audio signal.
+  / Resampling: time-warping with transposition, akin to speeding a vinyl record up or down.
+  / Time-stretching: time-warping without transposition.
+/ DTW: Dynamic Time Warping.
+/ NMF: Non-negative Matrix Factorization.
+/ STFT: Short-Time Fourier Transform.
+/ DJ-MIR: DJ Music Information Retrieval
+/ DAW: Digital Audio Workstation
+/ EQ: equalizer
+/ SIFT: Scale Invariant Feature Transform
+  / Spectrogram: matrix of the squared modulus of the STFT
+  / Hop size: duration between two consecutive frames of the spectrogram
+  / Window size: duration of the time segment used for a frame of the spectrogram
+  / Overlap factor: ratio between the hop size and the window size
 
 #align(
   center,
@@ -131,10 +163,11 @@
     [$tau in [1..K]$], [Discrete time step in mix context],
     [$dot.circle$], [Hadamard (term-wise) matrix product],
     [$delta_(a,b)$], [Kronecker delta function: $delta_(a,b) = cases(1 "if" a = b, 0 "otherwise")$],
-    [], [],
-    [], [],
-    [], [],
-    [], [],
+    [$VV$], [Mix spectrogram matrix],
+    [$WW$], [Track spectrogram matrix],
+    [$HH$], [Activation matrix],
+    [$g$], [Mixing gain],
+    [$f$], [Time-warping function],
     [], [],
     [], [],
   ),
@@ -171,7 +204,7 @@ While identification, mix generation, and content analysis have already seen som
 
 Within these subtasks, we focus our interest on the task of _DJ-mix reverse engineering_, as defined by #cite(<schwarzMethodsDatasetsDJMix2021>, form: "prose"). This term encompasses the identification, alignment and unmixing subtasks described above. Given that identification is a well-explored problem space, we further narrow our focus on the alignment on unmixing tasks.
 
-More formally, our goal is understood as follows:
+More formally, our goal is as follows:
 
 *Given*:
 - a recording of a DJ mix;
@@ -308,7 +341,7 @@ While we were unable to pursue this concept due to time and resource constraints
 = DJ mix transcription using Non-Negative Matrix Factorization (NMF)
 
 In this section, we introduce a new application of NMF algorithm to perform DJ mix transcription.
-We first study DJ hardware and software to justify the transcription task as a matrix factorization problem, and introduce the penalized Beta-NMF algorithm. We then show that the matrix factorization can yield an intuitive representation of DJ mix parameters. We propose a multi-pass extension of the NMF algorithm that greatly improves its performance, and discuss additional modifications. We then present example results and evaluate our method on a publicly available dataset, and discuss possible extensions.
+We first study DJ hardware and software to justify the transcription task as a matrix factorization problem, and introduce the penalized Beta-NMF algorithm. We then show that the matrix factorization can yield an intuitive representation of DJ mix parameters. We propose a multi-pass extension of the NMF algorithm that greatly improves its performance, and discuss additional modifications. We then present example results and evaluate our method on a publicly available dataset.
 
 == DJ mixing hardware
 
@@ -323,7 +356,7 @@ The DJs' field of expression is defined by its hardware and/or software: decks, 
 The signal path illustrated is directly derived from standard DJ setups, encompassing both hardware and software environments.#footnote[It is noteworthy that DJ software is typically designed to emulate the functionality of traditional DJ hardware, thereby preserving the validity of this signal path.] The process can be described as follows:
 
 - Two or more DJ decks (in blue) are used as signal sources and play pre-recorded tracks and apply time-warping.
-- The signal from the decks is routed to the DJ mixer, which perform a weighted sum of the input signals. The mixer may also apply various effects, the most prevalent being a 3- or 4-band equalizer (EQ). Additional elements, such as external audio sources or digital effects, are also integrated at this stage.
+- The signal from the decks is routed to the DJ mixer, which perform a weighted sum of the input signals. The mixer may also apply various effects, the most prevalent being a 3- or 4-band equalizer (EQ). Additional elements, such as external audio sources or audio effects, are also integrated at this stage.
 - Post-mixing, additional processing might be applied to the mixed output to meet specific distribution or venue requirements. This processing typically involves light modifications such as compression and equalization. However, given the minimal nature of these modifications, they will be considered negligible and thus omitted from further discussion in this report.
 
 == Matrix representation
@@ -528,54 +561,43 @@ Due to this discretization, there may not be an exact alignment between $overlin
 
 DJ mixes consist of multiple tracks, each typically appearing only within a specific segment of the mix. Consequently, the activation matrix $HH$ is expected to exhibit block-sparsity, as depicted in @fig:block-sparse.
 
-While applying NMF directly to feature matrices with the desired hop size may yield the expected results, empirical observations suggest that an increased number of tracks and smaller window sizes exacerbate cross-track indeterminacies. This issue arises especially because tracks in a mix are often stylistically or tonally similar.
-
-To address this we propose a multi-pass NMF algorithm, formally described in @algo:multipass, paired with a filter-threshold-resize procedure inbetween each pass.
-
-The methodology involves initially performing NMF on feature matrices with a significantly large hop size (on the order of minutes) to obtain the approximate position of each track in the mix. The resultant activation matrix is then processed through filtering to reduce noise, followed by blurring and thresholding. This matrix is resized to match the dimensions corresponding to the next smaller hop size, resulting in a larger activation matrix that serves as the initialization for the subsequent NMF pass. This iterative process continues until the desired hop size is reached.
-
-By property of the NMF with multiplicative updates, regions of the matrix set to zero during thresholding will remain zero in subsequent iterations, thereby avoiding spurious activations. However, careful selection of filtering and thresholding techniques is crucial to avoid the inadvertent elimination of valid activations.
-
-Moreover, when coupled with an appropriate block-sparse matrix representation, this approach significantly enhances processing efficiency and memory usage, which is particularly advantageous given the large size of feature matrices at smaller hop sizes.
-
 #figure(
-  image("block-sparse.svg"),
+  image("block-sparse.svg", width: 80%),
   caption: [Expected block-sparse form of the activation matrix in a 5-track mix, with transition regions annotated.],
 ) <fig:block-sparse>
 
-#figure(
-  kind: "algorithm",
-  supplement: [Algorithm],
+While applying NMF directly to spectrograms computed with the desired hop size may yield the expected results, our experiments suggest that an increased number of tracks and smaller window sizes exacerbate cross-track indeterminacies. This issue arises especially because tracks in a mix are often stylistically or tonally similar.
 
-  pseudocode-list(numbered-title: [Multi-pass NMF])[
-    - *Inputs*:
-      - _hop_sizes_[]: list of decreasing hop sizes
-      - _overlap_: overlap factor
-    - *Output*: estimated activation matrix
-    + *Let* _Hs_[] = empty list
-    + *For* $i$ in _hop_sizes_.length()
-      + _hlen_ $<-$ _hop_sizes_[$i$]
-      + _wlen_ $<-$ _hop_ \* _overlap_
-      + $WW <-$ spectrogram(concatenate(reference tracks), _hlen_, _wlen_))
-      + $VV <-$ spectrogram(mix, _hlen_, _wlen_))
-      + *If* $i = 0$
-        + $HH <-$ noise
-      + *Else*
-        + $HH <-$ filter_threshold_resize(_Hs_[$i-1$], _hlen_)
-      + *End If*
-      + _Hs_.append($HH$)
-    + *End for*
-    + *Return* _Hs_[$i$]
-  ],
-) <algo:multipass>
+To address this we propose a multi-pass NMF algorithm, described in @fig:multipass-flow, paired with a filter-threshold-resize procedure inbetween each pass.
+
+The methodology involves initially performing NMF on spectrograms computed with a significantly large hop size (on the order of minutes) to obtain the approximate position of each track in the mix. The resultant activation matrix is then processed through filtering to reduce noise, followed by blurring and thresholding. This matrix is resized to match the dimensions corresponding to the next smaller hop size, resulting in a larger activation matrix that serves as the initialization for the subsequent NMF pass. This iterative process continues until the desired hop size is reached.
+
+#figure(
+  image("multipass-flowchart.svg", width: 50%),
+  caption: [Flow chart of the multipass NMF algorithm],
+) <fig:multipass-flow>
+
+By property of the NMF with multiplicative updates, regions of the matrix set to zero during thresholding will remain zero in subsequent iterations, thereby avoiding spurious activations. However, careful selection of filtering and thresholding techniques is crucial to avoid the inadvertent elimination of valid activations.
+
+Moreover, when coupled with an appropriate block-sparse matrix representation, this approach significantly enhances processing efficiency and memory usage, which is particularly advantageous given the large size of spectrogram matrices at smaller hop sizes.
+
+As an illustration, we ran the multipass NMF algorithm on a 3-track mix with gradually decreasing hop sizes. The @fig:multipass depicts the estimated activation matrices at the end of each pass. The first hop size (15 seconds) gives a rough estimation of the positions of the constituent tracks in the mix. and with each subsequent pass, the activation matrices are larger the activations more precise, and become less noisy and more sparse.
+
+#figure(
+  image("multipass.svg", width: 120%),
+  caption: [Vizualisation of successive estimated activation matrices during execution of the multipass NMF algorithm.],
+) <fig:multipass>
 
 === Filter-threshold-resize procedure
 
-#text(fill: red)[Ajouter illustration]
+The filter-threshold-resize procedure is integral to the effectiveness of the multipass NMF algorithm. The steps of the procedure are described below, and illustrated @fig:interpass.
 
-The filter-threshold-resize procedure is integral to the effectiveness of the multipass NMF algorithm.
+#figure(
+  image("interpass.svg", width: 150%),
+  caption: [Vizualisation of the steps of the filter-threshold-resize procedure on a 3-track mix. The input activation matrix corresponds to a hop size of 3 seconds, and the output corresponds to a hop size of 1 second.],
+) <fig:interpass>
 
-/ Filtering: A line-enhancing filter is applied on each submatrix $HH_((i))$ of $HH$, inspired by #cite(<mullerEnhancingSimilarityMatrices2006>, form: "prose"). This filter is designed using fixed-length one-pixel-wide straight line kernels with slopes distributed between a minimum and maximum value. A morphological opening operation is performed on $HH$ with these kernels, and the results are aggregated. This process eliminates activations shorter than the specified length and that do not meet the expected slope limits, effectively denoising the activation matrix.
+/ Morpohological filtering: A line-enhancing filter is applied on each submatrix $HH_((i))$ of $HH$, inspired by #cite(<mullerEnhancingSimilarityMatrices2006>, form: "prose"). This filter is designed using fixed-length one-pixel-wide straight line kernels with slopes distributed between a minimum and maximum value. A morphological opening operation is performed on $HH$ with these kernels, and the results are aggregated. This process eliminates activations shorter than the specified length and that do not meet the expected slope limits, effectively denoising the activation matrix.
 / Blurring: A gaussian blur is applied on each submatrix with a small kernel. This has the effect of smearing the activations in time.
 / Thresholding: Set activations below a specified threshold to zero.
 / Resizing: The thresholded activation matrix is then resized to a larger size, i.e. corresponding to a smaller hop size, and returned.
@@ -601,11 +623,17 @@ Additionally, we compress the frequency information using the mel-scale transfor
 
 == Analysis window overlap
 
-A key parameter when working with spectrograms is the overlap factor of the analysis windows. In order to emphasize the temporal continuity of the musical signals, we use high overlap factors: our experiments have shown that a window size of 6 to 8 times the hop size give the best results. It has experimentally shown to be highly effective in reducing indeterminacies, but tends to smooth out the results as a side-effect, which can potentially obscure finer details in the signal.
+A key parameter when working with spectrograms is the overlap factor of the analysis windows. In order to emphasize the temporal continuity of the musical signals, we use high overlap factors: our experiments have shown that a window size of 6 to 8 times the hop size give the best results. It has experimentally shown to be highly effective in reducing indeterminacies, but tends to smooth out the results as a side-effect, which can potentially obscure finer details in the signal, as shown in @fig:overlap.
 
 Typically, such large window sizes would result in a substantial increase in the number of frequency bins, leading to higher computational demands. However, by applying the mel-scale transform, we effectively mitigate this issue.
 
-#text(fill: red)[Ajouter figures de $HH$ pour != valeurs d'overlap]
+#figure(
+  grid(
+    columns: 3,
+    image("overlap-1.svg"), image("overlap-8.svg"), image("overlap-16.svg"),
+  ),
+  caption: [Comparison of the influence of different overlap factors. Top row: estimated activation matrices. Bottom row: zooms on the middle activation. ],
+) <fig:overlap>
 
 == Normalization
 
@@ -635,7 +663,7 @@ To improve the numeric stability of the NMF, the columns of $XX$ are typically n
 
 == Thresholding of low-power frames
 
-Recorded music tracks often contain moments of silence or faint noise at the beginning and end of the signal. It is also quite common to find fade-out endings at the end of tracks, or reverb tails. These sounds take the form of low-power frames in the feature matrices. These elements appear as low-power frames in the feature matrices. Reverb tails, in particular, are problematic due to their spectral similarity to the rest of the track, which can introduce indeterminacies in the analysis.
+Recorded music tracks often contain moments of silence or faint noise at the beginning and end of the signal. It is also quite common to find fade-out endings at the end of tracks, or reverberation tails. These elements appear as low-power frames in the feature matrices. Reverberation tails, in particular, are problematic due to their spectral similarity to the rest of the track, which can introduce indeterminacies in the analysis.
 
 Additionally, low-power frames are unlikely to be present in a DJ mix, as DJs typically focus on playing the most musically significant portions of tracks, omitting the very beginning and end.
 
@@ -644,15 +672,16 @@ To address this, we detect and mark low-power frames in the input track spectrog
 
 == Implementation
 
-The algorithm has been implemented in Python. By leveraging the pytorch#footnote(link("https://pytorch.org")) framework, the optimization process can run on CPU and GPU and benefit from parallel matrix multiplications.
+The algorithm has been implemented in Python. By leveraging the pytorch#footnote(link("https://pytorch.org")) framework, the optimization process can run on both CPU and GPU and benefit from parallel matrix multiplications on the latter.
 
+We summarize the tunable parameters in @table:hyperparams along with their typical values. These can be further adjusted with prior knowledge of the mixes' characteristics.
 
 #figure(
   table(
     columns: 4,
     table.header[*Name*][*Description*][*Unit*][*Typical value*],
     [`FS`], [Sampling rate], [Hz], [22050],
-    [`HOP_SIZES`], [Decreasing list of hop durations], [s.], [`[4, 2, 1, 0.5, 0.1]`],
+    [`HOP_SIZES`], [Decreasing list of hop durations], [s.], [`[20, 10, 2, 0.5, 0.1]`],
     [`OVERLAP`], [STFT analysis window overlap factor], [-], [6 to 8],
     [`NMELS`], [Number of mel bands], [-], [64 to 256],
     [`SPEC_POWER`], [STFT power], [-], [2],
@@ -662,15 +691,16 @@ The algorithm has been implemented in Python. By leveraging the pytorch#footnote
     [`CARVE_BLUR_SIZE`], [Size of the gaussian blur kernel], [-], [3],
     [`CARVE_MIN_DURATION`], [Minimum line duration for morphological filtering], [s.], [10],
     [`CARVE_MAX_SLOPE`], [Maximum allowed deviation from original playing speed], [#sym.plus.minus %], [10 to 50],
-    [`NOISE_DIM`], [Number of columns for noise estimation], [-], [0 to 5],
+    [`NOISE_DIM`], [Number of columns for noise estimation], [-], [0 to 50],
   ),
-  caption: [Summary of hyperparameters],
-)
+  caption: [Summary of tunable parameters],
+) <table:hyperparams>
 
 == Example results
 
-/ 
-/ 3-track mix with linear fades: 
+
+/ 3-track mix with linear fades: coucou
+
 === Simple 3-track mix with linear fades
 #figure(
   image("../../results/2024-08-14T15:20:57.073921/set281mix3-none-none-79.mp3/nmf.png"),
@@ -692,50 +722,81 @@ The algorithm has been implemented in Python. By leveraging the pytorch#footnote
 
 We applied our algorithm to the UnmixDB dataset version 1.1#footnote(link("https://github.com/Ircam-RnD/unmixdb-creation")), which includes excerpts from open-licensed dance tracks and their corresponding automatically generated mixes.
 
-Each mix consists of three track excerpts, mixed a beat-aligned manner with linear crossfades to simulate a realistic DJ context. Tracks are mixed with different combinations of four audio effects (none, bass boost, compression, distortion) and three time-scaling methods (none, resampling, time-stretching). The dataset provides complete ground truth for all mixes, and includes Python code for generating similar datasets. For further details, see #cite(<schwarzUnmixDBDatasetDJMix2018>, form: "prose").
+Each mix consists of three track excerpts, mixed in a beat-aligned manner with linear crossfades to simulate a realistic DJ context. Tracks are mixed with different combinations of audio effects (none, bass boost, compression, distortion) and time-scaling methods (none, resampling, time-stretching). The dataset provides complete ground truth for all mixes, and includes Python code for generating similar datasets. For further details, see #cite(<schwarzUnmixDBDatasetDJMix2018>, form: "prose").
+
+The computation took about two hours on an Intel Xeon E5-2630 CPU with 12 threads. The tunable parameters used are summarized in @table:unmixdb-params.
+
+#figure(
+  table(
+    columns: 2,
+    table.header[*Name*][*Value*],
+    [`FS`], [ 22050 Hz],
+    [`HOP_SIZES`], [ \[ 4, 2, 1, 0.5 \] seconds],
+    [`OVERLAP`], [ 8],
+    [`NMELS`], [ 128],
+    [`SPEC_POWER`], [ 2],
+    [`DIVERGENCE`], [ $cal(D)_beta$ with $beta=0$],
+    [`LOW_POWER_THRESHOLD`], [-40 dB],
+    [`CARVE_THRESHOLD`], [-120 dB],
+    [`CARVE_BLUR_SIZE`], [ 3],
+    [`CARVE_MIN_DURATION`], [ 10 seconds],
+    [`CARVE_MAX_SLOPE`], [ 1.5],
+    [`NOISE_DIM`], [ 15],
+  ),
+  caption: [Tunable parameters for UnmixDB evaluation.],
+) <table:unmixdb-params>
 
 We define the followig evaluation metrics:
 / Gain error: mean absolute error between the estimated gain and ground truth gain: $1/K sum_(tau=1)^K abs(tilde(g)[tau] - g[tau])$
 / Warp error: mean absolute error in seconds between the estimated and ground truth warp: $1/K sum_(tau=1)^K abs(tilde(f)[tau] - f[tau])$
 
-#figure(image("../../nmf/results-plots/best_gain_err.svg"), caption: [Box plot of the gain error per variant])
-#figure(image("../../nmf/results-plots/best_warp_err.svg"), caption: [Box plot of the warp error per variant])
-
 The mixes in UnmixDB are generated with fixed time-scale factors. To obtain comparable metrics to #cite(<schwarzMethodsDatasetsDJMix2021>, form: "prose"), we estimate the speed factor and the cue point by linear regression over the warp sequence, and define the following metrics:
 
-/ Speed ratio: mean ratio between the estimated and the ground truth speed factors
-/ Cue point error: mean absolute error in seconds between the estimated and the ground truth cue points
+/ Speed ratio: mean ratio between the estimated and the ground truth speed factors.
+/ Cue point error: mean absolute error in seconds between the estimated and the ground truth cue points.
 
+Box plots of these metrics are represented respectively in @fig:unmixdb-gain, @fig:unmixdb-warp, @fig:unmixdb-cue and @fig:unmixdb-speed.
 
-#figure(image("../../nmf/results-plots/best_speed_ratio.svg"), caption: [Box plot of the speed ratio per variant])
+These results demonstrate the validity of our method, particularly regarding with time-stretching and without. The performance on resampled mixes, which feature transposition, is poorer. However, given that our mixing model doesn't include pitch-shifting in its assumption, we find it is still acceptable performance.
+
+The performance of cue point estimation is comparable to #cite(<schwarzMethodsDatasetsDJMix2021>, form:"prose"), but the same cannot be said of the speed ratio estimation. We explain this by the more lax assumptions of our approach regarding time-warping.
+
+#figure(
+  image("../../nmf/results-plots/best_gain_err.svg"),
+  caption: [Box plot of the gain error per variant],
+) <fig:unmixdb-gain>
+#figure(
+  image("../../nmf/results-plots/best_warp_err.svg"),
+  caption: [Box plot of the warp error per variant],
+) <fig:unmixdb-warp>
 #figure(
   image("../../nmf/results-plots/best_track_start_err.svg"),
   caption: [Box plot of the cue point error per variant],
-)
+) <fig:unmixdb-cue>
+#figure(
+  image("../../nmf/results-plots/best_speed_ratio.svg"),
+  caption: [Box plot of the speed ratio per variant],
+) <fig:unmixdb-speed>
 
-#text(fill: red)[bla bla]
 
 === Impact of noise estimation
 
-#text(fill: red)[bla bla]
+We conduct an additional experiment on UnmixDB to evaluate the effectiveness of the additive noise estimation. We compare in @fig:noise-gain and @fig:noise-warp two runs of the algorithm without noise (in blue) and with noise estimation (in orange). The results show that in the case of added audio effects, adding noise estimation to the optimization algorithm improves the estimation. The "dist" and especially the "bass" variants benefit the most.
 
-#figure(image("../../nmf/results-plots/noise_gain_err.svg"), caption: [Box plot of the gain error per variant])
-#figure(image("../../nmf/results-plots/noise_warp_err.svg"), caption: [Box plot of the warp error per variant])
-
-
-== Extensions
-=== EQ estimation
-#text(fill: red)[justification par le hardware, découpage des matrics en bandes puis traiter le problème de la même manière]
-
-=== Invariance à la transposition
-#text(fill: red)[cf. divergence invariante à la transposition, ou NMFD, ou PLCA... mais en pratique le binnage du melspec suffit pour les "petites" transpo (justif quantitative nécessaire?).]
+#figure(
+  image("../../nmf/results-plots/noise_gain_err.svg"),
+  caption: [Box plot of the gain error per variant],
+) <fig:noise-gain>
+#figure(
+  image("../../nmf/results-plots/noise_warp_err.svg"),
+  caption: [Box plot of the warp error per variant],
+) <fig:noise-warp>
 
 = Conclusion
-#text(fill: red)[Résultats moins bons que l'état de l'art, mais méthode + générale et prend moins d'hypothèses restrictives sur la forme du mix.]
 
-#lorem(200)
+This internship report has discussed existing methods and datasets for DJ mix reverse engineering. The need for datasets with precise and complete ground truth annotations has been highlighted, emphasizing their importance for advancing research in this area, and explored potential methodologies for their creation.
 
-
+In response to the challenges presented by DJ mixes with complex time-warping transformations, and to address limitations of previous work in this regard, a new integrated approach was proposed. This approach involves the use of Non-negative Matrix Factorization (NMF) with a multi-pass extension, supported by a mixing model grounded in the technical principles of DJ hardware. While the results obtained did not match the precision of previous methods, this approach demonstrated potential in capturing a broader spectrum of DJ practices, offering a foundation for further refinement and exploration in future research.
 
 ///////////////////////////// BIBLIO
 
@@ -747,7 +808,6 @@ The mixes in UnmixDB are generated with fixed time-scale factors. To obtain comp
 #show: appendix
 
 = The TrackId.net dataset <sec:trackidnet>
-#text(fill: red)[Présentation, statistiques, données, problèmes de droits. En attente de la réponse de Luis (proprio de trackid.net)]
 
 Trackid.net#footnote(link("https://trackid.net"))is an automated track identification service, presented as a freely accessible website, which features a collection of mixes along with their associated playlists. Users request track identification by submitting a link to a mix from streaming services, and the website uses a fingerprinting method to identify the tracks played. Registered users can also amend the tracklist to correct identification errors or manually add tracks.
 
