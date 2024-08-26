@@ -4,7 +4,7 @@
 #show: make-glossary
 
 #let title = "DJ mix reverse engineering using multi-pass non-negative matrix factorization"
-
+#set page(margin: 3.3cm)
 #set page(header: context {
   if counter(page).get().first() > 3 [
     #align(center)[
@@ -13,19 +13,23 @@
   ]
 })
 
-#set page(footer: context [
-  #align(center)[
-    #counter(page).display(
-      "1/1",
-      both: true,
-    )
+#set page(footer: context {
+  if counter(page).get().first() >= 6 [
+    #align(center)[
+      #counter(page).display(
+        "1/1",
+        both: true,
+      )
+    ]
   ]
-])
-#set text(lang: "en", font: "New Computer Modern")
+})
+#set par(leading: 0.65em, first-line-indent: 1em)
+#show par: set block(spacing: 1em)
+#show heading: set block(above: 2em, below: 1.3em)
+// #set text(lang: "en", font: "New Computer Modern")
 #show math.equation: set text(font: "New Computer Modern Math")
-#show heading: set text(font: "IBM Plex Sans")
 #set heading(numbering: "I.1.")
-#set figure(placement: none)
+#set figure(placement: auto)
 #let appendix(body) = {
   set heading(numbering: "A.1.", supplement: [Appendix])
   counter(heading).update(0)
@@ -34,9 +38,9 @@
 #show heading.where(level: 1): it => [
   #pagebreak(weak: false)
 
-  #set text(size: 16pt, hyphenate: false)
+  #set text(size: 18pt, hyphenate: false)
+  #set align(center)
   #block(smallcaps(it))
-  #line(length: 100%)
   #v(1em)
 ]
 
@@ -83,7 +87,9 @@
   // TODO: vertical align + telecom paris too big
   #grid(
     columns: logos.len(),
-    ..logos.map(i => box(image(i, width: 1 / logos.len() * 150%)))
+    box(image("IRCAM.CP.jpg", width: 50%)),
+    box(image("LOGO_SU_HORIZ_SEUL.jpg", width: 50%)),
+    box(image("Logo_Télécom_Paris.jpg", width: 30%)),
   )
 
   #pagebreak()
@@ -91,12 +97,12 @@
   #v(1fr)
   #par(justify: false)[
     *Abstract* \
-    Disc jockeys (DJs) create mixes by creatively combining existing music tracks, applying various transformations such as time-warping and audio effects. DJ-mix reverse engineering involves computationally analyzing these mixes to extract the parameters used in their creation. Previous approaches have treated this process as two separate tasks: alignment and unmixing, but these methods are difficult to generalize to the wide range of transformations that DJs employ. This report introduces an integrated approach for both tasks using a multi-pass Non-negative Matrix Factorization (NMF) algorithm that is able to extract arbitrary time-warping transformations while being robust to noise. The method's effectiveness is evaluated both qualitatively, through representative examples, and quantitatively, using a publicly available dataset. Additionally, the report explores the challenges of developing suitable datasets for DJ mix reverse engineering, proposing potential new methods for dataset creation.
+    Disc jockeys (DJs) create mixes by creatively combining existing music tracks, while applying various transformations such as time-warping and audio effects. DJ-mix reverse engineering involves computationally analyzing these mixes to extract the parameters used in their creation. Previous approaches have treated this process as two separate tasks: alignment and unmixing, which are difficult to generalize to the wide range of transformations that DJs employ. This report introduces an integrated approach for both tasks using a multi-pass Non-negative Matrix Factorization (NMF) algorithm that is able to extract arbitrary time-warping transformations and the mixing gains while being robust to noise. The method's effectiveness is evaluated both qualitatively, through representative examples, and quantitatively, using a publicly available dataset. Additionally, the report explores the challenges of developing suitable datasets for DJ mix reverse engineering, proposing potential approaches for dataset creation by ground truth measurement.
   ]
   #v(1fr)
   #par(justify: false)[
     *Résumé* \
-    Les disc-jockeys (DJ) créent des mixes en combinant des pistes musicales de manière créative, en appliquant diverses transformations telles que la manipulation temporelle ou des effets audio. La rétro-ingénierie de mix DJ consiste en l'analyse computationelle de ceux-ci afin d'en extraire les paramètres utilisés lors de leur création. Les approches antérieures ont traité ce processus comme deux tâches distinctes : l'alignement et le démixage, mais ces méthodes sont difficiles à généraliser à la large gamme de transformations employées par les DJ. Ce rapport introduit une approche intégrée pour les deux tâches en utilisant un algorithme de factorisation en matrices non-négatives (NMF) multi-passe capable d'extraire des manipulations temporelles arbitraires tout en étant robuste au bruit. L'efficacité de la méthode est évaluée à la fois qualitativement, à l'aide d'exemples représentatifs, et quantitativement, à l'aide d'un ensemble de données accessibles au public. En outre, le rapport explore les défis posés par le développement de jeux de données appropriés pour la rétro-ingénierie de mix DJ, en proposant de nouvelles méthodes pour la création de jeux de données.
+    Les disc-jockeys (DJ) créent des mixes en combinant des pistes musicales de manière créative, en appliquant diverses transformations telles que la manipulation temporelle ou des effets audio. La rétro-ingénierie de mix DJ consiste en l'analyse computationelle de ceux-ci afin d'en extraire les paramètres utilisés lors de leur création. Les approches antérieures ont traité ce processus comme deux tâches distinctes : l'alignement et le démixage, qui sont difficiles à généraliser à la large gamme de transformations employées par les DJ. Ce rapport introduit une approche intégrée pour les deux tâches en utilisant un algorithme de factorisation en matrices non-négatives (NMF) multi-passe capable d'extraire des manipulations temporelles arbitraires et le gain de mixage tout en étant robuste au bruit. L'efficacité de la méthode est évaluée à la fois qualitativement, à l'aide d'exemples représentatifs, et quantitativement, à l'aide d'un ensemble de données accessibles au public. En outre, le rapport explore les défis posés par le développement de jeux de données appropriés pour la rétro-ingénierie de mix DJ, en proposant de nouvelles méthodes pour la création de jeux de données par mesure de vérité terrain.
   ]
   #v(1fr)
 ]
@@ -106,10 +112,10 @@
 #align(right)[
   #emph[
     I would like to express my gratitude to: \
-    Diemo and Dominique, for their continued mentorship and support, as well as their patient listening to my ramblings; \
+    Diemo and Dominique, for their continued mentorship and support; \
     Rémi, Roland and Geoffroy for their help and valuable insights; \
     Luis for their enthusiasm and keenness to share; \
-    The band of merry IRCAM interns for making work days enjoyable.
+    The band of merry IRCAM interns for making office days enjoyable.
   ]
 ]
 
@@ -133,27 +139,31 @@
 //////////////////////////////////////////
 
 #heading(numbering: none)[Glossary and mathematical conventions]
-/ Track: A recorded piece of music or song.
-/ Mix: A creative combination of overlapping consecutive tracks, potentially transformed using various effects and techniques.
-/ Transition: The overlapping segment where a track finishes and the next one starts playing.
-/ Fade-in, fade-out: A way to introduce and de introduce tracks using a continuous gain increase or decrease.
-/ Cross-fade: A transition made of the simultaneous use of a fade-out and a fade-in.
+/ Track: A recorded piece of music or song
+/ Mix: A creative combination of overlapping consecutive tracks, potentially transformed using various effects and techniques
+/ Transition: The overlapping segment where a track finishes and the next one starts playing
+/ Fade-in, fade-out: A way to introduce and de introduce tracks using a continuous gain increase or decrease
+/ Cross-fade: A transition made of the simultaneous use of a fade-out and a fade-in
 / DJ: Disc-Jockey
-/ Cue point: the point of a track at which it is introduced in a mix.
-/ Time-warping, warping: time transformation of an audio signal.
-  / Resampling: time-warping with transposition, akin to speeding a vinyl record up or down.
-  / Time-stretching: time-warping without transposition.
-/ DTW: Dynamic Time Warping.
-/ NMF: Non-negative Matrix Factorization.
-/ STFT: Short-Time Fourier Transform.
+/ DJ Deck: A standalone unit that plays recorded media
+/ DJ Mixer: A specialized mixing console for DJs
+/ Cue point: the point of a track at which it is introduced in a mix
+/ Time-warping, warping: time transformation of an audio signal
+  / Resampling: time-warping with transposition, akin to speeding a vinyl record up or down
+  / Time-stretching: time-warping without transposition
+/ DTW: Dynamic Time Warping
+/ NMF: Non-negative Matrix Factorization
+/ STFT: Short-Time Fourier Transform
 / DJ-MIR: DJ Music Information Retrieval
 / DAW: Digital Audio Workstation
-/ EQ: equalizer
+/ EQ: Equalizer
 / SIFT: Scale Invariant Feature Transform
-  / Spectrogram: matrix of the squared modulus of the STFT
+  / Spectrogram: squared modulus of the STFT
   / Hop size: duration between two consecutive frames of the spectrogram
   / Window size: duration of the time segment used for a frame of the spectrogram
   / Overlap factor: ratio between the hop size and the window size
+
+#v(5em)
 
 #align(
   center,
@@ -168,8 +178,6 @@
     [$HH$], [Activation matrix],
     [$g$], [Mixing gain],
     [$f$], [Time-warping function],
-    [], [],
-    [], [],
   ),
 )
 
@@ -178,15 +186,15 @@
 
 For decades, DJs (_Disc-Jockeys_) and the practice of DJing have played an integral role in shaping our musical landscape. DJing can be interpreted in various ways, this thesis defines it as the continuous playback of recorded media (_tracks_) to an audience—whether live, via radio or other broadcast media, or through recorded formats like _mixtapes_ or streaming services.
 
-A DJ's performance, often referred to as a _mix_, involves the careful selection and sequential playback of music tracks. However, DJing is not merely a passive process; it is a transformative art. DJs often overlap tracks, either to create entirely new musical compositions (_mashups_) or more commonly, to maintain a seamless flow between songs. The overlapping segments, known as _transitions_, are crucial to this process, with the simplest form being a cross-fade.
+A DJ's performance, often referred to as a _mix_, involves the careful selection and sequential playback of music tracks. However, DJing is not merely a passive process; it is a transformative art. DJs often overlap tracks, either to create entirely new musical compositions (_mashups_) or more commonly, to maintain a seamless flow between songs. The overlapping segments are known as _transitions_, with the simplest form being a cross-fade.
 
 In the realm of dance music, these transitions are crafted to be as seamless as possible to maintain the energy and keep the audience dancing. DJs employ various techniques to achieve this, such as synchronizing the tempo and downbeats of overlapping tracks, manipulating EQ settings to highlight or diminish certain elements, and applying effects like reverberation and delay.
 
 Traditional vinyl DJs are typically limited to selecting _cue points_ — the specific time offset at which a track is introduced — and adjusting the playback speed, sometimes in extreme ways, as in the case of scratching. In contrast, modern digital DJ equipment offers a broader array of transformative tools, including transposition, time-warping, looping, and jumping between different sections of a track.
 
-Moreover, contemporary DJ sets may include additional elements such as spoken word or sung vocals, rhythm machines, and sound effects like sirens or jingles, further enriching the auditory experience.
+Moreover, DJ sets may include additional elements such as spoken word or sung vocals, rhythm machines, and sound effects like sirens or jingles, further enriching the auditory experience.
 
-== DJ-MIR and prior art
+== Prior art on DJ Music Information Retrieval
 
 The pervasive influence of DJing in popular culture has made it a subject of interest in academic research. Indeed, a deeper understanding of DJ practices could significantly contribute to various fields, including musicology, cultural studies, music technology, and the automation of DJ techniques for both entertainment and commercial applications.
 
@@ -195,10 +203,8 @@ In particular, the field of DJ-MIR (DJ Music Information Retrieval) seeks to dev
 / Identification: Retrieving the playlist used to create the mix, as explored in @sixOlafLightweightPortable2023 @sonnleitnerLandmarkBasedAudioFingerprinting2016 @wangIndustrialStrengthAudioSearch;
 / Alignment: Determining the start and end times of each track within the mix, along with the time-scaling factors, as in @ewertHighResolutionAudio2009 @ramonaAutomaticAlignmentAudio2011 @werthen-brabantsGroundTruthExtraction2018 @kimComputationalAnalysisRealWorld2020 @schwarzMethodsDatasetsDJMix2021 @yangAligningUnsynchronizedPart2021 @sixDiscStitchAudiotoaudioAlignment2022;
 / Unmixing: Estimating and reversing the fade curves @ramonaSimpleEfficientFader2011 @werthen-brabantsGroundTruthExtraction2018 @schwarzExtractionGroundTruth @kimJointEstimationFader2022, the EQ parameters @kimJointEstimationFader2022, and any additional effects @barchiesiReverseEngineeringMix2010;
-/ Content analysis: Derive metadata such as genre and indicators of various social and musical aspects of the mix, such as cue points @zehrenAutomaticDetectionCue2020, @schwarzHeuristicAlgorithmDJ2018 or drops @yadatiDetectingDropsElectronic2014 @kimAutomaticDjMix2017.
+/ Content analysis: Deriving metadata such as genre and indicators of various social and musical aspects of the mix, such as cue points @zehrenAutomaticDetectionCue2020, @schwarzHeuristicAlgorithmDJ2018 or drops @yadatiDetectingDropsElectronic2014 @kimAutomaticDjMix2017.
 / Mix generation: Automatically generating realistic mixes from a given playlist, as addressed in @bittnerAutomaticPlaylistSequencing2017 @cliffHangDJAutomatic2000 @fujioSystemMixingSongs2003 @kimAutomaticDjMix2017 @chenAutomaticDJTransitions2022 @liLooPyResearchFriendlyMix2023
-
-While identification, mix generation, and content analysis have already seen some level of industrial application, the tasks of alignment and unmixing remain challenging.
 
 == Problem overview of DJ-mix reverse engineering
 
@@ -211,8 +217,8 @@ More formally, our goal is as follows:
 - the recordings of all the mix's constituting tracks;
 
 *Estimate*:
-- any temporal transformations applied to the tracks (play time, duration, speed, loops, jumps);
-- the mixing gain;
+- any temporal transformations applied to the tracks (cue points, play duration, time stretching, loops, jumps);
+- the evolution of the mixing gain of each track
 - any effects applied to the tracks/and or mix (distortion, compression, pitch-shifting, filtering, EQing...)
 
 Previous research has typically treated alignment and unmixing as sequential, independent tasks. Alignment is generally accomplished through feature extraction or fingerprinting combined with dynamic time warping (DTW). Subsequently, time-scaling factors are estimated, transition regions are segmented, and the unmixing process follows.
@@ -221,15 +227,15 @@ This approach has shown to be effective for broadcast mixes and simpler DJ sets,
 
 Therefore, we propose an integrated approach that treats alignment and unmixing as a single, conjoint tanscription task, enabling a more general understanding of the complexities inherent in DJ mixes.
 
-= DJ-mix reverse engineering datasets
+= Datasets for DJ-mix reverse engineering
 
 In order to evaluate their methods, researchers are in the need of appropriate datasets. Despite the large amount of available mixes, thanks to decades of recorded mixes and specialized streaming services, they are rarely sufficiently and correctly annotated.
 
-Appropriate datasets for DJ mix reverse engineering typically consist of mixes paired with the individual tracks used, accompanied by their respective time positions within the mix. Depending on the available annotations, these datasets may also include detailed information about the manipulations performed by the DJ during the creation of the mix, such as the volume levels for each track, time-stretching and transposition factors, the types and parameters of effects applied, and more. We operate under the assumption that all the transformations applied to the original tracks are known and enable to reconstruct the resulting mix signal.
+Appropriate datasets for DJ mix reverse engineering typically consist of mixes paired with their constituent tracks, accompanied by their respective time positions within the mix. Depending on the available annotations, these datasets may also include detailed information about the manipulations performed by the DJ during the creation of the mix, such as the volume levels for each track, time-stretching and transposition factors, the types and parameters of effects applied, and more. We operate under the assumption that all the transformations applied to the original tracks, if known, enable to reconstruct the resulting mix signal accurately.
 
 == Existing datasets
 
-Existing datasets can be separated in two broad categories:
+We identify two broad categories in which existing datasets can be classified:
 
 / Synthetic: These consist of mixes generated according to a set of predefined rules.
 / Real: These are derived from real-world mixes and are annotated either manually or automatically.
@@ -242,29 +248,29 @@ In the context of DJ-mix reverse engineering research, UnmixDB @schwarzUnmixDBDa
 
 === Real datasets
 
-Datasets derived from real DJ sets are valuable because they accurately reflect actual DJing practices, both past and present. Unlike synthetic datasets, they do not suffer from issues related to artificial generation, making them more representative of real-world scenarios. However, the use of real DJ sets presents several challenges. One of the primary obstacles is the need for time-intensive manual annotation or reliance on automatic annotation methods, which can be prone to errors. Additionally, the commercial nature of the mixes and the tracks within them raises significant legal concerns, particularly regarding their use in an academic setting.
+Datasets derived from real DJ sets are valuable because they accurately reflect actual DJing practices, both past and present. Unlike synthetic datasets, they do not suffer from issues stemming from artificial generation, making them more representative of real-world scenarios. However, the use of real DJ sets presents several challenges. One of the primary obstacles is the need for time-intensive manual annotation or reliance on automatic annotation methods, which can be prone to errors.
 
-To our knowledge, there is currently no freely available real dataset that meets the needs of DJ-mix reverse engineering research. Existing datasets, such as those used in #cite(<kimComputationalAnalysisRealWorld2020>, form:"prose"), #cite(<scarfeLongRangeSelfsimilarityApproach2013>, form:"prose"), #cite(<kimJointEstimationFader2022>, form:"prose") and the `disco` dataset from #cite(<sonnleitnerLandmarkBasedAudioFingerprinting2016>, form:"prose"), are not publicly accessible due to commercial and copyright constraints.
+The act of identifying a track from a DJ mix, known as colloquially as a _track ID_, is a recurring topic of interest within DJ culture, engaging both DJs and their audiences. This has led to the emergence of online platforms that host crowdsourced or automatically detected track IDs, such as 1001tracklists#footnote(link("https://www.1001tracklists.com")), CueNation#footnote(link("https://cuenation.com/")), LiveTracklist#footnote(link("https://www.livetracklist.com/")), mixes.wiki (formerly known as MixesDB)#footnote(link("https://www.mixes.wiki/w/Main_Page")) and TrackId.net#footnote(link("https://trackid.net/")).
 
-*Track ID culture and communities*
+These platforms collectively provide a vast amount of data, which can potentially be leveraged for data-mining activities and may be particularly useful for the content analysis aspect of DJ-MIR. However, the information available on these sites typically includes only track identification and approximate track positions within the mix. Furthermore, the audio content is often copyrighted, and the data itself may be subject to legal restrictions, which complicates its use in research. As a result, researchers must independently obtain the associated audio content, adding another layer of complexity to the process.
 
-The act of identifying tracks from a DJ mix, known as _track ID_, is a recurring topic of interest within DJ culture, engaging both DJs and their audiences. This has led to the emergence of online platforms that host crowdsourced or automatically detected track IDs, such as 1001tracklists#footnote(link("https://www.1001tracklists.com")), CueNation#footnote(link("https://cuenation.com/")), LiveTracklist#footnote(link("https://www.livetracklist.com/")), mixes.wiki (formerly known as MixesDB)#footnote(link("https://www.mixes.wiki/w/Main_Page")) and TrackId.net#footnote(link("https://trackid.net/")).
+Nonetheless, this is how #cite(<kimComputationalAnalysisRealWorld2020>, form:"prose") and #cite(<kimJointEstimationFader2022>, form:"prose"); obtained large-scale datasets for evaluation of their methods, with the latter being available, albeit without audio data: the commercial nature of the mixes and the tracks within them raises legal concerns, particularly regarding their use in an academic setting. To circumvent this, audio data can be downloaded from streaming services, but then its random availability becomes a concern for study repetability.
 
-These platforms collectively provide a vast amount of data, which could potentially be leveraged for data-mining activities and may be particularly useful for the content analysis aspect of DJ-MIR. However, the information available on these sites typically includes only track identification and approximate track positions within the mix. Furthermore, the audio content is often copyrighted, and the data itself may be subject to legal restrictions, which complicates its use in research. As a result, researchers must independently obtain the associated audio content, adding another layer of complexity to the process.
+Other noteworthy datasets are the one from #cite(<scarfeLongRangeSelfsimilarityApproach2013>, form:"prose"), which has been obtained from radio show archives, and the `disco` dataset from #cite(<sonnleitnerLandmarkBasedAudioFingerprinting2016>, form:"prose") which features measured bespoke mixes. Both of these are not publicly available.
 
 During the course of the internship, we obtained an extract of the TrackId.net database with the assistance of its owners. However, we found that this dataset was of limited interest for our purposes, but that it could be valuable for future research. A more detailed analysis of this dataset is provided in @sec:trackidnet.
 
 == Approaches for dataset creation
 
-An ideal dataset for DJ-mix reverse engineering would consist of real-world DJ sets that are both diverse in the styles represented and annotated with precise and comprehensive ground truth data. Achieving such a dataset is challenging, as current automatic and manual methods fall short in providing the necessary accuracy and completeness.
+An ideal dataset for DJ-mix reverse engineering would consist of real-world DJ sets that are both diverse in the styles represented and annotated with precise and comprehensive ground truth data. Achieving such a dataset is challenging, as current automatic annotation methods fall short in providing the necessary accuracy and completeness.
 
 With this in mind, we suggest that ground truth may be measured during the DJ mixing process. We detail some approaches that could be leveraged to this extent.
 
 === Optical tracking of vinyl records
 
-We implemented an optical tracking method to measure the angular velocity of a vinyl record during playback, enabling the extraction of the time-warping ground truth from a filmed DJ performance. By tracking a reference picture of a vinyl record to each frame of a video of a DJ turntable, the disc's rotation speed can be estimated. The method provides a valuable tool for capturing ground truth data, and can be especially useful given the vast amount of online videos of DJ performances.
+We implemented an optical tracking method to measure the angular velocity of a vinyl record during playback, enabling the extraction of the time-warping ground truth from a filmed DJ performance. The method can be especially useful given the vast amount of videos of DJ performances online. By tracking a reference picture of a vinyl record to each frame of a video of a DJ turntable, the record's rotation speed can be estimated.
 
-*Tracking:* The tracking is based on the scale-invariant feature transform (SIFT) algorithm @loweDistinctiveImageFeatures2004. The algorithm extracts keypoints from a reference image of the vinyl's label (@fig:vinyl-ref) and each frame of a video of the vinyl being played. By matching keypoints, a homography matrix is computed for each frame. This matrix represents the geometric transformation between the reference and the current frame, capturing the rotation, translation, and scale changes (@fig:vinyl-track). The sequence of homography matrices obtained across the frames is stored for further analysis.
+*Tracking:* The tracking is based on the scale-invariant feature transform (SIFT) algorithm @loweDistinctiveImageFeatures2004. The algorithm extracts keypoints from a reference image of the vinyl's label (@fig:vinyl-ref) and from each frame of a video of the vinyl being played. By matching these keypoints, a homography matrix is computed for each frame. This matrix represents the geometric transformation between the reference and the current frame, capturing the rotation, translation, and scale changes (@fig:vinyl-track). The sequence of homography matrices obtained across the frames is stored for further analysis.
 
 #figure(
   image("vinyl-ref.jpg"),
@@ -286,24 +292,24 @@ We implemented an optical tracking method to measure the angular velocity of a v
 
 #figure(
   image("rotato.svg"),
-  caption: [Computed angle and rotation speed of the vinyl. The record was played at 33 rpm for the first 30 seconds, then was "scratched" by hand for the remaining of the experiment.],
+  caption: [Computed angle and rotation speed of the vinyl. In the experiment, the record was played at 33 rpm for the first 30 seconds, then was "scratched" by hand for the remaining of the experiment.],
 ) <fig:vinyl-results>
 
-The accuracy of the extracted rotational speed is directly dependent on the temporal resolution of the video (usually 30 or 60 images per second), which limits the granularity of the angular velocity measurements. Additionally, the method is susceptible to noise introduced by the tracking process, which can affect the precision of the rotation and speed calculations.
+The accuracy of the extracted rotational speed is directly dependent on the temporal resolution of the video (usually 30 or 60 images per second), which limits the granularity of the measurements. Additionally, the method is susceptible to noise introduced by the tracking process, which can affect the precision of the rotation and speed calculations.
 
-Similar object tracking techniques could be used to extract ground truth data from any visible physical control of the DJ equipment. Due to aforementioned accuracy problems, we did not pursue this idea further.
+Similar object tracking techniques could be used to extract ground truth data from any visible physical control of the DJ equipment.
 
 === Metadata extraction from Digital Audio Workstation project files
 
-DJ mixes are not only created in live settings but can also be constructed in studio environments using Digital Audio Workstations (DAWs). In such cases, an audio engineer can replicate a DJ performance offline by leveraging a subset of the DAW’s features. The resulting DAW project files contain the reference tracks along with all the ground truth data required to generate the final mix audio file. This data can be programmatically extracted and processed to suit the needs of DJ-MIR research.
+DJ mixes are not only created in live settings but can also be constructed in studio environments using Digital Audio Workstations (DAWs). In such cases, an audio engineer can replicate a DJ performance offline by leveraging the DAW’s audio editing and automation features. The resulting DAW project files then contain the reference tracks along with all the ground truth data required to generate the final mix audio file. This data can be programmatically extracted and processed to suit the needs of DJ-MIR research.
 
-This approach has been previously explored by #cite(<werthen-brabantsGroundTruthExtraction2018>, form: "prose") for the creation of their dataset. Their tool, the _Ableton Live Mix Extractor_#footnote(link("https://github.com/werthen/ableton-extraction-tool")), is designed to extract ground truth data from _Ableton Live_ project files, focusing on scenarios with fixed tempo, fixed stretch factors, and simple crossfades. But the _Ableton Live_ DAW supports many additional features that could be used to further imitate real DJ mixes:
+This approach has been notably previously explored by #cite(<werthen-brabantsGroundTruthExtraction2018>, form: "prose") for the creation of their dataset. Their tool, the _Ableton Live Mix Extractor_#footnote(link("https://github.com/werthen/ableton-extraction-tool")), is designed to extract ground truth data from _Ableton Live_ project files, focusing on scenarios with fixed tempo, fixed stretch factors, and simple crossfades. But the _Ableton Live_ DAW supports many additional features that could be used to further imitate real DJ mixes, namely:
 - Non-constant tempo curves;
 - Non-constant time-warping;
 - Complex effect chains with evolving parameters.
 
-We have developed an enhanced version of this extraction tool. Our version supports the extraction of all aforementioned parameters and computes high-level ground truth data relevant to DJ-MIR tasks. As a case study, we produced an example mix, illustrated in @fig:ableton-project. The mix features:
-- Two tracks ("A" and "B") mixed, both starting from the middle;
+We have developed an enhanced version of this extraction tool. Our version supports the extraction of all aforementioned parameters and computes high-level ground truth data relevant to DJ-mix reverse engineering tasks. As a case study, we produced an example mix, illustrated in @fig:ableton-project. The mix features:
+- Two tracks ("A" and "B") mixed together;
 - Complex gain automation on both tracks, including:
   - Fade-in and fade-outs on both "A" and "B" (depicted with darker, curved backgrounds);
   - Multiple gain automations on "A" at both the mixer (first red line) and effect chain stages (second red line);
@@ -318,7 +324,7 @@ We have developed an enhanced version of this extraction tool. Our version suppo
     columns: 1,
     gutter: 1em
   ),
-  caption: [Example mix created using Ableton Live. \ Top: session view with clips and automations. \ Bottom: Warp Markers of the first clip.],
+  caption: [Example mix created in Ableton Live. \ Top: session view with clips and automations. \ Bottom: warp markers of the first clip.],
 ) <fig:ableton-project>
 
 The extracted gain and time-warp data are illustrated in @fig:ableton-results, demonstrating that all the applied transformations have been captured#footnote[The events in @fig:ableton-project do not visually align horizontally with @fig:ableton-results, as the time axis in the former is non-linear.].
@@ -338,10 +344,10 @@ We identified _Mixxx_#footnote(link("https://mixxx.org")) as a suitable candidat
 
 While we were unable to pursue this concept due to time and resource constraints, we believe that it holds significant potential for creating a real-world dataset with precise ground truth.
 
-= DJ mix transcription using Non-Negative Matrix Factorization (NMF)
+= DJ mix transcription
 
 In this section, we introduce a new application of NMF algorithm to perform DJ mix transcription.
-We first study DJ hardware and software to justify the transcription task as a matrix factorization problem, and introduce the penalized Beta-NMF algorithm. We then show that the matrix factorization can yield an intuitive representation of DJ mix parameters. We propose a multi-pass extension of the NMF algorithm that greatly improves its performance, and discuss additional modifications. We then present example results and evaluate our method on a publicly available dataset.
+We first study DJ hardware and software to justify the transcription task as a matrix factorization problem, and introduce the base Beta-NMF algorithm. We then show that the matrix factorization can yield an intuitive representation of DJ mix parameters. We propose a multi-pass extension of the NMF algorithm that greatly improves its performance, and discuss additional modifications. We then present example results and evaluate our method on a publicly available dataset.
 
 == DJ mixing hardware
 
@@ -356,10 +362,10 @@ The DJs' field of expression is defined by its hardware and/or software: decks, 
 The signal path illustrated is directly derived from standard DJ setups, encompassing both hardware and software environments.#footnote[It is noteworthy that DJ software is typically designed to emulate the functionality of traditional DJ hardware, thereby preserving the validity of this signal path.] The process can be described as follows:
 
 - Two or more DJ decks (in blue) are used as signal sources and play pre-recorded tracks and apply time-warping.
-- The signal from the decks is routed to the DJ mixer, which perform a weighted sum of the input signals. The mixer may also apply various effects, the most prevalent being a 3- or 4-band equalizer (EQ). Additional elements, such as external audio sources or audio effects, are also integrated at this stage.
+- The signal from the decks is routed to the DJ mixer, which performs a weighted sum of the input signals. The mixer may also apply various effects, the most prevalent being a 3- or 4-band equalizer (EQ). Additional elements, such as external audio sources or audio effects, are also integrated at this stage.
 - Post-mixing, additional processing might be applied to the mixed output to meet specific distribution or venue requirements. This processing typically involves light modifications such as compression and equalization. However, given the minimal nature of these modifications, they will be considered negligible and thus omitted from further discussion in this report.
 
-== Matrix representation
+== Matrix representation of the DJ mixing process
 
 We now use this knowledge to introduce a matrix formulation of DJ mixing, by considering a spectrogram reprensentation of the signals. We achive this by grouping all non-time-based transformations, and modeling any additional elements and timbral effects as additive noise, as illustrated in @separate-boxes.
 
@@ -394,13 +400,13 @@ Then, by defining two additional matrices $WW_((a))$ and $HH_((a))$ of compatibl
 $
   VV &= WW_((a)) HH_((a)) + sum_(i = 1)^M WW_((i)) HH_((i)) \
   &= underbrace(mat(WW_((1)) WW_((2)) ... WW_((M))WW_((a))), WW) underbrace(mat( HH_((1)); HH_((2)); dots.v; HH_((M)); HH_((a))), HH)
-$
+$ <eq:matmul>
 
-The unknown coefficients can be estimated numerically using matrix factorization techniques. In particular:
+Because we assume that the constituent tracks of the mix are known, the ($WW_((1))$ to $WW_((M))$ submatrices are known. Transcribing the DJ mix then amounts to determining the other coefficients of @eq:matmul:
 - If the noise matrix is assumed to be zero, estimating the gain and time-warping amounts to determining the coefficients of the $HH$ matrix while keeping the $WW$ matrix fixed.
 - If not, only part of the $WW$ matrix ($WW_((1))$ to $WW_((M))$ submatrices) is kept fixed, while the $WW_((a))$, $HH_((1))$ to $HH_((M))$ and $HH_((a))$ submatrices are estimated.
 
-This matrix factorization problem is well-suited for the NMF family of algorithms, which has proven especially effective in audio source separation tasks, which we present in the next section.
+This can be understood as a matrix factorization problem. It is well-suited to the NMF family of algorithms, which has proven especially effective in audio source separation tasks, which we present in the next section.
 
 == NMF Algorithm
 
@@ -445,7 +451,7 @@ $
   )) / (gradient_bold(bold(theta))^+ cal(D)_beta (VV | WW HH))
 $ <eq:mu-gradient>
 
-With the beta-divergence, this yields the update rules in @algo:mu-betadiv which can be very efficiently implemented, with strong monotonicity guarantees when $beta in [0,2]$.
+With the beta-divergence, this yields the update rules of @algo:mu-betadiv which can be efficiently implemented, with strong monotonicity guarantees when $beta in [0,2]$.
 
 #figure(
   kind: "algorithm",
@@ -517,7 +523,7 @@ $ tilde(f) [tau] = "argmax"_(t in [1...T]) HH_(t tau) $ <time_estimator_argmax>
 
 Intuitively, $tilde(g)[tau]$ represents the energy of a column of $HH$, while $tilde(f)[tau]$ corresponds to the position of its peak.
 
-In the case of the ideal kernel (@ideal-kernel), it can be easily shown that these are exact estimators, meaning they perfectly recover the gain and time-warping functions. However, in practical scenarios, the optimization algorithm used to compute $HH$ does not inherently guarantee convergence to this ideal solution.
+In the case of the ideal kernel (@ideal-kernel), it can be easily shown that $tilde(f)$ and $tilde(g)$ are exact estimators, meaning they perfectly recover the gain and time-warping functions. However, in practical scenarios, the optimization algorithm used to compute $HH$ does not inherently guarantee convergence to this ideal solution.
 
 In practice, the NMF tends to converge towards the similarity matrix between $y$ and $x$, rather than the idealized sparse solution with line features. This underscores the need to incorporate additional techniques that guide the algorithm towards convergence to the ideal solution, thereby ensuring that the estimators remain robust in the presence of noise and other uncertainties. We discuss briefly a few examples of such indeterminacies in the next section.
 
@@ -537,7 +543,6 @@ In practice, the NMF tends to converge towards the similarity matrix between $y$
 
 Given the nature of musical signals, two columns of $XX$ could be almost identical (@fig:parallel-lines), for example in the presence of a loop in electronic music (@fig:indeterminacies).
 
-#text(fill: red)[virer les maths et mettre une figure]
 
 Let $t_1$ and $t_2$ be the time steps at which this is true, and $tau_1=f^(-1)[t_1]$ and $tau_2=f^(-1)[t_2]$ their antecedents. We then have $forall m$:
 $ YY_(m tau_1) = YY_(m tau_2) = g[tau_1]^2 XX_(m t_1) = g[tau_2]^2 XX_(m t_2) $
@@ -548,16 +553,12 @@ Visually, this corresponds to multiple activations per column of $HH$, with the 
 
 Usually, the spectrogram is not computed for every sample of a signal as in our earlier definition (@eq:stft), but at uniformly sampled time instants spaced by a _hop size_ $h$. This effectively downsamples the time steps to $overline(t) = h t$ and $overline(tau) = h tau$, leading to the following expressions for the spectrograms:
 
-#text(fill: red)[virer les maths et mettre une figure]
-
 $ XX_(m overline(t)) = abs(sum_(n=0)^(M-1) x[n+h t] w[n] e^(-j 2 pi n m / M))^2 $
 $ YY_(m overline(tau)) &= abs(g[tau] sum_(n=0)^(M-1) x[n+f[h tau]] w[n] e^(-j 2 pi n  m/ M))^2 $
 
 Due to this discretization, there may not be an exact alignment between $overline(t)$ and $overline(tau)$. Consequently, the activations within $HH$ could be distributed across neighboring cells.
 
-#text(fill: red)[ajouter une illustration des pics étalés dans $HH$]
-
-== Multi-pass NMF Algorithm<sec:multi-pass>
+== The Multi-pass NMF Algorithm <sec:multi-pass>
 
 DJ mixes consist of multiple tracks, each typically appearing only within a specific segment of the mix. Consequently, the activation matrix $HH$ is expected to exhibit block-sparsity, as depicted in @fig:block-sparse.
 
@@ -585,28 +586,26 @@ As an illustration, we ran the multipass NMF algorithm on a 3-track mix with gra
 
 #figure(
   image("multipass.svg", width: 120%),
-  caption: [Vizualisation of successive estimated activation matrices during execution of the multipass NMF algorithm.],
+  caption: [Vizualization of successive estimated activation matrices during execution of the multipass NMF algorithm. Zero-valued cells are depicted in white.],
 ) <fig:multipass>
 
 === Filter-threshold-resize procedure
 
 The filter-threshold-resize procedure is integral to the effectiveness of the multipass NMF algorithm. The steps of the procedure are described below, and illustrated @fig:interpass.
 
-#figure(
-  image("interpass.svg", width: 150%),
-  caption: [Vizualisation of the steps of the filter-threshold-resize procedure on a 3-track mix. The input activation matrix corresponds to a hop size of 3 seconds, and the output corresponds to a hop size of 1 second.],
-) <fig:interpass>
-
 / Morpohological filtering: A line-enhancing filter is applied on each submatrix $HH_((i))$ of $HH$, inspired by #cite(<mullerEnhancingSimilarityMatrices2006>, form: "prose"). This filter is designed using fixed-length one-pixel-wide straight line kernels with slopes distributed between a minimum and maximum value. A morphological opening operation is performed on $HH$ with these kernels, and the results are aggregated. This process eliminates activations shorter than the specified length and that do not meet the expected slope limits, effectively denoising the activation matrix.
 / Blurring: A gaussian blur is applied on each submatrix with a small kernel. This has the effect of smearing the activations in time.
 / Thresholding: Set activations below a specified threshold to zero.
 / Resizing: The thresholded activation matrix is then resized to a larger size, i.e. corresponding to a smaller hop size, and returned.
-
+#figure(
+  image("interpass.svg", width: 150%),
+  caption: [Vizualisation of the steps of the filter-threshold-resize procedure on a 3-track mix. The input activation matrix corresponds to a hop size of 3 seconds, and the output corresponds to a hop size of 1 second. Zero-valued cells are depicted in white.],
+) <fig:interpass>
 == Downsampling and use of the mel transform
 
 DJ mixes are typically lengthy, ranging from 30 minutes to several hours, and as they consist of musical signals, their frequency bandwidth is notably extensive. When employing the Short-Time Fourier Transform (STFT) with standard hop durations and a typical number of frequency bins for musical signals, the resulting feature matrix can become exceedingly large. This leads to substantial memory usage and elevated resource consumption.
 
-In order to mitigate these issues, we have opted to use relatively large hop durations, on the order of 100 milliseconds. This approach not only reduces the computational load but also offers an additional advantage: longer hop durations are better adapted to the temporal structures inherent in music. The hop duration however is not fixed, as is explained in @sec:multi-pass.
+In order to mitigate these issues, we have opted to use relatively large hop durations. This approach not only reduces the computational load but also offers an additional advantage: longer hop durations are better adapted to the temporal structures inherent in music. The hop duration however is not fixed, as is explained in @sec:multi-pass.
 
 Additionally, we compress the frequency information using the mel-scale transform @stevensScaleMeasurementPsychological1937. This transform groups nearby frequencies into bins based on a perceptual model of human hearing, which is particularly well-suited for processing musical signals. Importantly, this transform has no effect on the ideal kernel and our estimators.
 
@@ -635,7 +634,7 @@ Typically, such large window sizes would result in a substantial increase in the
   caption: [Comparison of the influence of different overlap factors. Top row: estimated activation matrices. Bottom row: zooms on the middle activation. ],
 ) <fig:overlap>
 
-== Normalization
+== Spectrogram normalization
 
 To improve the numeric stability of the NMF, the columns of $XX$ are typically normalized to sum to 1. We also normalize $YY$ by a single factor#footnote[Normalizing by column as for $XX$ would cancel out the gain information in $HH$.]. We show that this results in a simple scaling factor for $HH$ and therefore for the estimators.
 
@@ -698,25 +697,32 @@ We summarize the tunable parameters in @table:hyperparams along with their typic
 
 == Example results
 
+We run the algorithm on several constructed mixes, that showcase mix scenarios with the typical transformations that we aim to be able to reverse engineer. All figures depict:
+- On the left, the final estimated activation matrix, with zero-valued cells in gray;
+- In the middle, the estimated gain (dots) and ground truth (dashed)
+- On the right, the estimated warp function (dots) and ground truth (dashed).
 
-/ 3-track mix with linear fades: coucou
-
-=== Simple 3-track mix with linear fades
-#figure(
-  image("../../results/2024-08-14T15:20:57.073921/set281mix3-none-none-79.mp3/nmf.png"),
-  caption: [Target mix ($VV$), activation matix ($HH$), ref. tracks ($WW$), estimated mix ($WW HH$) ],
-)
+Firstly, we focus on time transformations using "mixes" composed of a single track. The @fig:jumploop presents a single track that has been sliced and looped, and the @fig:timestretch corresponds to a single track that has been time-stretched by the use of the Rubberband#footnote(link("https://breakfastquay.com/rubberband/")) library. Although presenting some artifacts, especially in the gain estimation for the timestretched track, we can see that the time-warping function is estimated accurately.
 
 #figure(
-  image("../../nmf/best_gain.svg"),
-  caption: [Gain estimation (dots) and ground truth (dashed)],
-)
-#figure(
-  image("../../nmf/best_warp.svg"),
-  caption: [Warp estimation (dots) and ground truth (dashed)],
-)
+  image("jumploop.svg", width: 140%),
+  caption: [Results for a sliced track with loops and jumps.],
+) <fig:jumploop>
 
-=== bla
+#figure(
+  image("timestretch.svg", width: 140%),
+  caption: [Results for a time-stretched track.],
+) <fig:timestretch>
+
+
+Secondly, we focus on overlapping tracks. The @fig:linear-mix depicts a simple mix of two tracks with a large transition region composed of a crossfade. Despite having no kwowledge of the form of cross-fading used, the method correctly estimates the gain for both tracks, and mostly correctly estimates the warp function.
+
+It should be noted that the figure depict the raw warp function estimations, which is computed for all tracks for the whole duration of the mix. Hence, the points outside of the tracks' playing range are effectively noise and could be filtered, for example, using a simple threshold on the gain estimation.
+
+#figure(
+  image("linear-mix.svg", width: 140%),
+  caption: [Beat-synchronous mix of two tracks with linear fades.],
+) <fig:linear-mix>
 
 == Evaluation on UnmixDB
 
@@ -757,25 +763,25 @@ The mixes in UnmixDB are generated with fixed time-scale factors. To obtain comp
 
 Box plots of these metrics are represented respectively in @fig:unmixdb-gain, @fig:unmixdb-warp, @fig:unmixdb-cue and @fig:unmixdb-speed.
 
-These results demonstrate the validity of our method, particularly regarding with time-stretching and without. The performance on resampled mixes, which feature transposition, is poorer. However, given that our mixing model doesn't include pitch-shifting in its assumption, we find it is still acceptable performance.
+These results demonstrate the validity of our method, particularly regarding the variants with time-stretching and without. The performance on resampled mixes, which feature transposition, is poorer. However, given that our mixing model doesn't include pitch-shifting in its assumptions, we find it is still acceptable performance.
 
 The performance of cue point estimation is comparable to #cite(<schwarzMethodsDatasetsDJMix2021>, form:"prose"), but the same cannot be said of the speed ratio estimation. We explain this by the more lax assumptions of our approach regarding time-warping.
 
 #figure(
   image("../../nmf/results-plots/best_gain_err.svg"),
-  caption: [Box plot of the gain error per variant],
+  caption: [Box plot of the gain error per variant.],
 ) <fig:unmixdb-gain>
 #figure(
   image("../../nmf/results-plots/best_warp_err.svg"),
-  caption: [Box plot of the warp error per variant],
+  caption: [Box plot of the warp error per variant.],
 ) <fig:unmixdb-warp>
 #figure(
   image("../../nmf/results-plots/best_track_start_err.svg"),
-  caption: [Box plot of the cue point error per variant],
+  caption: [Box plot of the cue point error per variant.],
 ) <fig:unmixdb-cue>
 #figure(
   image("../../nmf/results-plots/best_speed_ratio.svg"),
-  caption: [Box plot of the speed ratio per variant],
+  caption: [Box plot of the speed ratio per variant.],
 ) <fig:unmixdb-speed>
 
 
@@ -796,7 +802,7 @@ We conduct an additional experiment on UnmixDB to evaluate the effectiveness of 
 
 This internship report has discussed existing methods and datasets for DJ mix reverse engineering. The need for datasets with precise and complete ground truth annotations has been highlighted, emphasizing their importance for advancing research in this area, and explored potential methodologies for their creation.
 
-In response to the challenges presented by DJ mixes with complex time-warping transformations, and to address limitations of previous work in this regard, a new integrated approach was proposed. This approach involves the use of Non-negative Matrix Factorization (NMF) with a multi-pass extension, supported by a mixing model grounded in the technical principles of DJ hardware. While the results obtained did not match the precision of previous methods, this approach demonstrated potential in capturing a broader spectrum of DJ practices, offering a foundation for further refinement and exploration in future research.
+In response to the challenges presented by DJ mixes with complex time-warping transformations, and to address limitations of previous work in this regard, a new integrated approach was proposed. This approach involves the use of Non-negative Matrix Factorization (NMF) with a multi-pass extension, supported by a mixing model grounded in the technical principles of DJ hardware. We demonstrated the effectiveness of the method on arbitrary time-warping transformations. While the results obtained in quantitative evaluation did not match the precision of previous methods, the proposed approach demonstrated potential in capturing a broader spectrum of DJ practices, offering a foundation for further refinement and exploration in future research.
 
 ///////////////////////////// BIBLIO
 
@@ -809,14 +815,14 @@ In response to the challenges presented by DJ mixes with complex time-warping tr
 
 = The TrackId.net dataset <sec:trackidnet>
 
-Trackid.net#footnote(link("https://trackid.net"))is an automated track identification service, presented as a freely accessible website, which features a collection of mixes along with their associated playlists. Users request track identification by submitting a link to a mix from streaming services, and the website uses a fingerprinting method to identify the tracks played. Registered users can also amend the tracklist to correct identification errors or manually add tracks.
+Trackid.net#footnote(link("https://trackid.net")) is an automated track identification service, presented as a freely accessible website, which features a collection of mixes along with their associated playlists. Users request track identification by submitting a link to a mix from streaming services, and the website uses a fingerprinting method to identify the tracks played. Registered users can also amend the tracklist to correct identification errors or manually add tracks.
 
-During our internship, we contacted the website's owners, who kindly provided a snapshot of their entire database. As of April 10, 2024, this snapshot contained metadata for 136,231 mixes for a cumulative duration of 7,896 days of audio, and 666,625 unique tracks.
+During our internship, we contacted the website's owners, who kindly provided a snapshot of their database. As of April 10, 2024, this snapshot contained metadata for 136,231 mixes for a cumulative duration of 7,896 days of audio, and 666,625 unique tracks.
 
 == Dataset contents
 For each mix, the available metadata includes:
-- The title, duration, streaming service, and source of the mix;
-- The tracklist with titles, artists and labels (when available);
+- The title, duration, and source of the mix;
+- The tracklist with titles, artists, and labels (when available);
 - The start and end times for each track;
 - The inferred style of the mix.
 
@@ -830,7 +836,7 @@ Additionally, the vast majority of the audio content is protected under copyrigh
 
 Given the substantial amount of mixes included, the dataset offers insights about the current landscape of recorded DJ mixes.
 
-As shown in @fig:trackidnet-duration, most mixes range from 30 minutes to 2 hours in length, with an average duration of 83 minutes. There however are some extremely long mixes. Some mixes, however, are considerably longer. It is also noteworthy that the duration of many mixes is a multiple of 30 minutes.
+As shown in @fig:trackidnet-duration, most mixes range from 30 minutes to 2 hours in length, with an average duration of 83 minutes. Some mixes, however, are considerably longer. It is also noteworthy that the duration of many mixes is a multiple of 30 minutes.
 
 #figure(
   image("../../datasets/trackidnet/trackidnet-duration.svg"),
@@ -865,9 +871,9 @@ The most frequent styles, as depicted in @fig:trackidnet-styles, are predominant
 
 === Quality of the annotations
 
-To assess the quality of the metadata, we calculated the _gap duration_ between tracks, defined as the difference between the detected start of track $n$ and the detected end of track $n-1$. A positive gap duration indicates a gap between tracks, while a negative duration indicates overlapping tracks.
+To assess the quality of the metadata, we calculated the _gap duration_ between tracks, defined as the difference between the detected start of track $n$ and the detected end of track $n-1$. A positive difference indicates a gap between tracks, while a negative difference indicates overlapping tracks.
 
-The distribution of gap durations (@fig:trackidnet-gapduration) suggests a significant number of incompletely annotated mixes. However, it is important to note that gaps may not always signify poor annotations. For example, radio mixes may correctly lack annotations for segments where people are talking between tracks.
+The distribution of gap durations (@fig:trackidnet-gapduration) suggests a significant number of incompletely annotated mixes. However, it is important to note that gaps may not always signify poor annotations. For example, radio mixes may correctly present gaps for segments where people are talking between tracks.
 
 #figure(
   image("../../datasets/trackidnet/trackidnet-gapduration.svg"),
@@ -946,7 +952,7 @@ $
   gradient_HH^- cal(P)_"lasso" &= 0
 $
 
-== Gain smoothness
+== Gain smoothness penalty
 
 The DJ is expected to perform smooth transitions, so we assume that the gain applied to each track is varying relatively slowly. Consequently, we want to penalize abrupt changes in the gain. Using the gain estimator (@gain_estimator_sum), we have:
 
@@ -985,7 +991,7 @@ $
   (gradient_HH^- cal(P)_g)_(i j) = 2 (HH_(i,j-1) + HH_(i,j+1))
 $
 
-== Diagonal smoothness
+== Diagonal smoothness penalty
 
 We hypothesize the tracks to be played near their original speed, and that there will be significant time intervals without any loops or jumps. This results in diagonal line structures in $HH$. We define a *diagonal smoothness* penalty that minimises the difference between diagonal cells of $HH$:
 
@@ -1018,7 +1024,7 @@ $
   (gradient_HH^- cal(P)_d)_(i j) = 2 (HH_(i-1,j-1) + HH_(i+1,j+1))
 $
 
-== Lineness
+== Lineness penalty
 
 The time-warping function $f[tau]$ is expected to be injective and piecewise continuous. This means we can characterize the neighboring cells of a given activation in $HH$. Given an activated cell $(i,j)$, only the up direction $(i+1,j)$, right direction $(i,j+1)$, or upper-right diagonal direction $(i+1, j+1)$ should be activated, but not any combination of the three.
 
