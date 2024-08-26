@@ -162,6 +162,7 @@ def plot_H(
 
     ax.set_xlabel("mix frame")
     ax.set_ylabel("ref frame")
+    ax.grid(False)
     return im
 
 
@@ -202,6 +203,7 @@ def plot_pow_spec(W: np.ndarray, split_idx=None, ignored_cols=None, ax=None):
                 color=IGNORED_COLOR,
                 alpha=IGNORED_ALPHA,
             )
+    ax.grid(False)
 
     return im
 

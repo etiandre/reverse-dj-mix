@@ -115,6 +115,26 @@ class TimestretchMix(Mix):
         return [self._track]
 
 
+class ManualMix(FromFileMix):
+    def __init__(
+        self, audio_path: Path, track_paths: list[Path], gain_func, warp_func
+    ) -> None:
+        super().__init__(audio_path)
+        self._gain = gain_func
+        self._warp = warp_func
+        self._track_paths = track_paths
+
+    def gain(self, times: np.ndarray) -> np.ndarray:
+        return self._gain(times)
+
+    def warp(self, times: np.ndarray) -> np.ndarray:
+        return self._warp(times)
+
+    @property
+    def tracks(self):
+        return [FromFileRefTrack(p) for p in self._track_paths]
+
+
 class SyntheticDB(Dataset):
     @property
     def mixes(self):
@@ -126,5 +146,5 @@ class SyntheticDB(Dataset):
             CrossfadeMix("linear-mix", DEADMAU5_A, DEADMAU5_B, 3.75, 7.5),
             CrossfadeMix("linear-mix-desync", DEADMAU5_A, DEADMAU5_B, 3.6, 7.5),
             CrossfadeMix("nuttah-deadmau5", NUTTAH, DEADMAU5_B, 2, 5),
-            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2), (4, 5)], 8),
+            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2.5), (4, 4.5)], 8),
         ]
