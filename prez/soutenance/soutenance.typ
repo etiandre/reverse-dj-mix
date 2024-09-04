@@ -1,13 +1,12 @@
 #import "@preview/polylux:0.3.1": *
 #import "@preview/lovelace:0.3.0": *
 #import themes.metropolis: *
-#set math.equation(numbering: "1.")
 #show: metropolis-theme.with()
 #set text(lang: "fr", size: 20pt)
 #show figure.caption: set text(size: 15pt, style: "italic")
 #set text(font: "Inria Sans", weight: "light", size: 17pt)
-// #show math.equation: set text(font: "Fira Math")
-#set math.equation(numbering: "(1)")
+// #show math.equation: set text(font: "TeX Gyre Termes Math")
+// #set math.equation(numbering: "(1)")
 #show math.equation.where(block: true): it => rect(width: 100%, fill: rgb("#def4ff"))[
   #v(0.5em)
   #it
@@ -47,7 +46,11 @@
   #pdfpc.speaker-note(```md
   DJ = Disc-Jockey, littéralement pilote de disques
 
-  Origine: radio, besoin de passer de la musique de manière continue. DJ = sorte de juke-box humain. Matériel rudimentaire: besoin de "meubler" entre les morceaux.
+  Origine: radio, besoin de passer de la musique de manière continue.
+
+  DJ = sorte de juke-box humain.
+
+  Matériel rudimentaire: besoin de "meubler" entre les morceaux.
   ```)
 ]
 
@@ -57,41 +60,46 @@
     caption: [Le DJ _Grandmaster Flash_ sur des platines à tempo ajustable. Vers 1980. (Cornell University digital library)],
   )
   #pdfpc.speaker-note(```md
-  Spécialisation du matériel années '70, platines à tempo ajustable, tables de mixages + sophistiquées, donne lieu notamment dans le hip hop au scratching. Le DJ n'est plus cantonné à simplement passer de la musique.
+  Spécialisation du matériel années '70, platines à tempo ajustable, tables de mixages + sophistiquées, donne lieu notamment dans le hip hop au scratching.
+
+  Passe d'opérateur à performance artistique
   ```)
 ]
 
 #slide(title: [DJs et DJing])[
   #side-by-side[
     #figure(
-      image("modern-dj.jpg"),
-      caption: [Matériel DJ moderne avec platines et lecteurs numériques, mixeur, sampleur et console d'effets],
+      image("serato.png"),
+      caption: [Logiciel de DJing],
     )
+
   ][
     #figure(
-      image("serato.png"),
-      caption: [Logiciel de DJing _Serato DJ_],
+      image("modern-dj.jpg"),
+      caption: [Matériel DJ moderne avec platines et lecteurs numériques, mixeur, sampleur et console d'effets],
     )
   ]
   #pdfpc.speaker-note(```md
   Aujourd'hui, DJ et DJing omniprésents dans la culture populaire.
 
-  Matériel peut être totalement numérique.
+  Matériel peut être totalement numérique, ou hybride.
   ```)
 ]
 
+#slide(title: [Mix DJ])[
+  *Mix:* performance artistique, consiste à sélectionner et transformer de manière créative des morceaux de musique existants.
+]
+
 #slide(title: [Transcription de mix DJ])[
-  *Sachant*
-
-  - Un enregistrement d’un mix DJ;
-  - Les enregistrements des morceaux composant le mix;
-
-  *Estimer*
-
-  - Les transformations temporelles (étirement, boucles, sauts...) ;
-  - L'évolution des gains de mix ;
-  - Tout effet supplémentaire appliqué aux tracks et/ou mix.
-
+  #line-by-line[
+    *Sachant*
+    - Un enregistrement d’un mix;
+    - Les enregistrements des morceaux composant le mix;
+    *Estimer*
+    - Les transformations temporelles utilisées (étirement, boucles, sauts...) ;
+    - L'évolution des gains de mix ;
+    - Tout effet supplémentaire appliqué aux morceaux et/ou mix.
+  ]
   #pdfpc.speaker-note(```md
     mix DJ: performance artistique, consiste à sélectionner et transformer de manière créative des morceaux de musique existants.
 
@@ -108,8 +116,9 @@
   ) <dj-signal-path>
 
   #pdfpc.speaker-note(```md
-  - Two or more DJ decks (in blue) are used as signal sources and play pre-recorded tracks and apply time-warping.
-  - The signal from the decks is routed to the DJ mixer, which performs a weighted sum of the input signals. The mixer may also apply various effects, the most prevalent being a 3- or 4-band equalizer (EQ). Additional elements, such as external audio sources or audio effects, are also integrated at this stage.
+  lecteur=source sonore
+
+  mixeur
   ```)
 ]
 
@@ -128,15 +137,17 @@
 ]
 
 #slide(title: [Mise sous forme matricielle])[
-  Spectrogrammes : $XX^((i))$ et $YY^((i))$
+  #one-by-one[
+    Spectrogrammes : $XX^((i))$ et $YY^((i))$][
 
-  Lien entre $YY^((i))$ et $XX^((i))$:
-  $ YY^((i))_(m tau) &= g[tau]^2 XX^((i))_(m,f^((i))[tau]) $
-
-  Peut s'exprimer sous la forme:
-  $ YY^((i)) &= XX^((i)) HH^((i)) $
-
-  $HH^((i))$: *matrice d'activation* du morceau $i$
+    Lien entre $YY^((i))$ et $XX^((i))$:
+    $ YY^((i))_(m tau) &= g[tau]^2 XX^((i))_(m,f^((i))[tau]) $
+  ][
+    Peut s'exprimer sous la forme:
+    $ YY^((i)) &= XX^((i)) HH^((i)) $
+  ][
+    $HH^((i))$: *matrice d'activation* du morceau $i$
+    }]
 ]
 
 
@@ -144,10 +155,11 @@
   #side-by-side[
     Solution particulière: la matrice d'activation "idéale"
     $ tilde(HH)^((i))_(t tau) eq.def g^((i))[tau]^2 delta_(t,f^((i))[tau]) $
-
+    #pause
     Estimateurs de $f$ et $g$:
     $ tilde(f)^((i)) [tau] = argmax_(t in [1...T]) tilde(HH)_(t tau) $ <time_estimator_argmax>
     $ tilde(g)^((i)) [tau] = sqrt(sum_(t=1)^(T) tilde(HH)_(t tau) ) $ <gain_estimator_sum>
+    #pause
   ][
     #figure(
       image("H_exemple.svg"),
@@ -163,28 +175,31 @@
       caption: [Formulation matricielle.],
     ) <nmf-djmix>
   ][
-    $ YY &= NN + sum_(i = 1)^M XX_((i)) HH_((i)) $
-
+    $ YY &= NN + sum_(i = 1)^N XX^((i)) HH^((i)) $
+    #pause
+    Factorisation de la matrice de bruit: $NN = overline(XX) #h(0.2em) overline(HH)$
 
   ]
 ]
 
 #slide(title: [Mise sous forme de produit matriciel])[
-  Factorisation de la matrice de bruit: $NN = overline(XX) #h(0.2em) overline(HH)$
   $
-    YY = underbrace(mat(overline(XX) #h(0.2em) XX_((1)) XX_((2)) ... XX_((M))), XX) underbrace(mat( overline(HH); HH_((1)); HH_((2)); dots.v; HH_((M))), HH)
+    YY = underbrace(mat(overline(XX) #h(0.2em) XX^((1)) XX^((2)) ... XX^((M))), XX) underbrace(mat( overline(HH); HH^((1)); HH^((2)); dots.v; HH^((M))), HH)
   $
 ]
 #let tcolor(x) = text(fill: blue, $#x$)
 #slide(title: [Mise sous forme de produit matriciel])[
+
+  *Transcrire un mix $<==>$ déterminer $HH^((1)), HH^((2)) ...$*
+
   $
-    YY = underbrace(mat(tcolor(overline(XX)) #h(0.2em) XX_((1)) XX_((2)) ... XX_((M))), XX) underbrace(mat( tcolor(overline(HH)); tcolor(HH_((1))); tcolor(HH_((2))); tcolor(dots.v); tcolor(HH_((M)))), HH)
+    YY = underbrace(mat(tcolor(overline(XX)) #h(0.2em) XX^((1)) XX^((2)) ... XX^((M))), XX) underbrace(mat( tcolor(overline(HH)); tcolor(HH^((1))); tcolor(HH^((2))); tcolor(dots.v); tcolor(HH^((M)))), HH)
   $
 ]
-#new-section-slide("Factorisation en matrices non-négatives à passes multiples")
+#new-section-slide("Factorisation en matrices non-négatives (NMF) à passes multiples")
 
 #slide(title: "Factorisation en matrices non-négatives (NMF)")[
-  #strong[Principe]: sachant une matrice $bold(Y)>=0$, estimer $bold(X)>=0$ et $HH>=0$ tels que:
+  #strong[Principe]: sachant une matrice _cible_ $bold(Y)>=0$, estimer le _dictionnaire_ $bold(X)>=0$ et l'_activation_ $HH>=0$ tels que:
 
   $ bold(Y) approx bold(X H) $
 
@@ -254,3 +269,7 @@
 ]
 
 #new-section-slide([Conclusion])
+
+#slide(title: "Bibliographie")[
+  #bibliography("../../zotero.bib", title: none, style: "chicago-notes")
+]
