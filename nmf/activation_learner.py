@@ -105,7 +105,7 @@ class ActivationLearner:
 
         # compute indexes of track boundaries
         self.split_idx = [0] + list(
-            np.cumsum([ref.shape[1] for ref in input_powspecs[:-1]], axis=0)
+            np.cumsum([ref.shape[1] for ref in input_powspecs[:-1]], axis=0, dtype=int)
         )
 
         # construct NMF matrices

@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Union
 from .classes import FromFileMix, FromFileRefTrack, Mix, RefTrack, Dataset, FS
 import numpy as np
-import pyrubberband
+# import pyrubberband
 
 
 class CrossfadeMix(Mix):
@@ -146,5 +146,5 @@ class SyntheticDB(Dataset):
             CrossfadeMix("linear-mix", DEADMAU5_A, DEADMAU5_B, 3.75, 7.5),
             CrossfadeMix("linear-mix-desync", DEADMAU5_A, DEADMAU5_B, 3.6, 7.5),
             CrossfadeMix("nuttah-deadmau5", NUTTAH, DEADMAU5_B, 2, 5),
-            TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2.5), (4, 4.5)], 8),
+            # TimestretchMix("stretch", DEADMAU5_A, [(0, 0), (3, 2.5), (4, 4.5)], 8),
         ]
